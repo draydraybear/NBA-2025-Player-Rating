@@ -3,5 +3,6 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/NBA-2526-Preseason-Player-Rating/', // 必須和 repo 名稱一致
+  // 路徑需與 repo 名稱完全一致（前後都有 /）
+  base: '/NBA-2025-Player-Rating/',
 })
