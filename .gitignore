@@ -1,15 +1,5 @@
-# 建置輸出（不放進主分支）
+node_modules/
 dist/
-
-# 本機環境變數（可能含金鑰）
-.env
-.env.local
-.env.*.local
-!.env.example   # 如果你想提供範例，可保留這一行讓 .env.example 被追蹤
-
-# Vite 快取（你已經有 .vite，保留也可以）
 .vite/
-
-# 可有可無的系統檔
-Thumbs.db      # Windows 產生的
-.DS_Store      # macOS 產生的（你已經有）
+.env
+.DS_Store
