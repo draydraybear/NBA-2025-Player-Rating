@@ -55,6 +55,19 @@ const WEST = TEAMS.filter(t => t.conf === "West").sort((a,b)=>a.abbr.localeCompa
 
 // --- 儲存鍵名 ---
 const STORAGE_KEY = "nba_tabs_app_v1";
+const PRESET_FLAG_KEY = "nba_preset_loaded_v1"; // 避免重覆載入
+const BASE_PATH = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL)
+  ? import.meta.env.BASE_URL
+  : '/';
+
+// 取得在 GitHub Pages 下可用的預設資料 URL：
+// - 若你用 Route A（main/docs 發佈），把檔案放到 docs/data/preset.json
+// - 也支援 Vite 的 public/data/preset.json（build 後會變成 /data/preset.json）
+function getPresetURL(){
+  // 優先嘗試相對於網站根路徑（會自動含 base，例如 /NBA-2025-Player-Rating/）
+  const url1 = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL ? import.meta.env.BASE_URL : '/') + 'data/preset.json';
+  return url1;
+}
 
 // --- 工具 ---
 const newId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id-${Math.random().toString(36).slice(2)}`);
@@ -694,7 +707,25 @@ export function runTests(){
 // App 主體（Dark-only）
 // ==========================================================
 export default function App(){
+  async function tryLoadPresetOnce(current){
+    try{
+      if(typeof window==='undefined') return;
+      const already = localStorage.getItem(PRESET_FLAG_KEY);
+      const empty = !current || !Array.isArray(current.players) || current.players.length===0;
+      if(already || !empty) return;
+      const url = getPresetURL();
+      const res = await fetch(url, { cache: 'no-store' });
+      if(!res.ok) return;
+      const data = await res.json();
+      const merged = { ...DEFAULT_STATE, ...data };
+      saveApp(merged);
+      setApp(merged);
+      localStorage.setItem(PRESET_FLAG_KEY, '1');
+      console.log('Preset loaded from', url);
+    }catch(err){ console.warn('Preset load skipped:', err); }
+  }
   const [app,setApp] = useState(loadApp()||DEFAULT_STATE);
+  useEffect(()=>{ tryLoadPresetOnce(app); /* 首次載入：若本機無資料，嘗試抓 /data/preset.json */ },[]);
   const [tab,setTab] = useState('Player');
   const [teamAbbr,setTeamAbbr] = useState('LAL');
   const [playerCard,setPlayerCard] = useState(null);
