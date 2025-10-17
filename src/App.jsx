@@ -3,11 +3,11 @@ import React, { useEffect, useMemo, useState } from "react";
 /* ==========================================================
  🏀 三分頁介面（Team / Player / Predict）— Dark Only + 新欄位 + 新條件色
  - Dark-only：整站固定深色
- - Player：欄位 Rank、PLAYER、TEAM、POS、POS'、評分、上季評分、本季增減、真實薪水、評估薪水、差額（👉 程式動態：真實薪水 - 評估薪水）；
+ - Player：欄位 Rank、PLAYER、TEAM、POS、POS'、評分、上季評分、本季增減、真實薪水、評估薪水、差額（👉 程式動態：評估薪水 - 真實薪水）；
            PLAYER/TEAM/POS/POS' 可複選篩選；全欄位可點擊排序；預設以「評分」由大到小
            條件化著色：
              * 評分、上季評分：#09734E，低值→透明，高值→不透明（alpha 0→1）
-             * 本季增減、差額：以 0 為中點；>0 用 #09734E、<0 用 #4A1C1C；越極端 alpha 越高；0 時「不著色（透明）」
+             * 本季增減、差額：以 0 為中點；>0 用 #09734E、<0 用 #7D2C2D；越極端 alpha 越高；0 時「不著色（透明）」
  - Team：先顯示東/西 30 隊；點入隊頁左側 Depth Chart、右側「球員資訊」表；
          右側表格的著色使用「全體球員」的分佈（先著色再篩選）
          提供返回 30 隊按鈕；點上方 Team 頁籤也會回到 30 隊
@@ -126,56 +126,55 @@ function rgba(hex, a){ const [r,g,b]=hexToRgb(hex); const aa=Math.max(0,Math.min
 
 // 條件化著色：
 function colorMono(val,min,max,hex="#09734E"){ if(val==null||isNaN(val)||max==null||min==null||max<=min) return 'transparent'; const t=(val-min)/(max-min); return rgba(hex, Math.max(0, Math.min(1, t))); }
-function colorDiverge(val,min,max,hexPos="#09734E",hexNeg="#4A1C1C"){ if(val==null||isNaN(val)||max==null||min==null||max<=min) return 'transparent'; if(val===0) return 'transparent'; const posRange = Math.max(0, max); const negRange = Math.abs(Math.min(0, min)); if(val>0){ const a = posRange? Math.min(1, val/posRange): 0; return rgba(hexPos,a); } else { const a = negRange? Math.min(1, Math.abs(val)/negRange): 0; return rgba(hexNeg,a); } }
+function colorDiverge(val,min,max,hexPos="#09734E",hexNeg="#7D2C2D"){ if(val==null||isNaN(val)||max==null||min==null||max<=min) return 'transparent'; if(val===0) return 'transparent'; const posRange = Math.max(0, max); const negRange = Math.abs(Math.min(0, min)); if(val>0){ const a = posRange? Math.min(1, val/posRange): 0; return rgba(hexPos,a); } else { const a = negRange? Math.min(1, Math.abs(val)/negRange): 0; return rgba(hexNeg,a); } }
 
-// 差額：真實薪水 - 評估薪水
-const salaryDiff = (p)=> (Number(p?.真實薪水)||0) - (Number(p?.評估薪水)||0);
+// 差額：評估薪水 - 真實薪水
+const salaryDiff = (p)=> (Number(p?.評估薪水)||0) - (Number(p?.真實薪水)||0);
 
-// 轉換 CSV -> players 陣列
+// 轉換 CSV -> players 陣列（精簡版：不做欄位名稱 replace，需與表格標題完全一致）
 function csvToPlayers(csvText){
-  const rows=parseCSV(csvText); if(!rows.length) return [];
-  const norm = (s)=> String(s||'')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g,'')
-    .replace(/[’'′‵`]/g,"'")
-    .replace(/實際薪資|真實薪資/g,'真實薪水')
-    .replace(/預估薪資|估算薪資|估值薪資/g,'評估薪水')
-    .replace(/pos2|位置2|位置'|第二位置/g,"pos'")
-    .replace(/上季|上季評分|去季評分|上一季評分|prv|prev|previousrating/g,'上季評分')
-    .replace(/本季增減|增減|變動|季增減|deltarating|delta_rating|delta/g,'本季增減');
-  const header = rows[0].map(norm);
-  const find = (keys) => { const wants = keys.map(norm); for(let i=0;i<header.length;i++){ if(wants.includes(header[i])) return i; } return -1; };
-  const idxRank=find(["rank","排名"]);
-  const idxPLAYER=find(["player","姓名","球員","名字"]);
-  const idxTEAM=find(["team","隊","球隊","隊伍"]);
-  const idxPOS=find(["pos","位置"]);
-  const idxPOS2=find(["pos'","posprime","位置'","第二位置"]);
-  const idxRating=find(["評分","rating","score"]);
-  const idxPrevRating=find(["上季評分"]);
-  const idxDeltaRating=find(["本季增減"]);
-  const idxReal=find(["真實薪水","real","realsalary","actualsalary","actual_salary"]);
-  const idxEst=find(["評估薪水","est","estimatedsalary","estimate"]);
+  const rows = parseCSV(csvText);
+  if (!rows.length) return [];
+  const header = rows[0];
 
-  const out=[];
-  for(let r=1;r<rows.length;r++){
-    const row=rows[r]; if(!row||row.every(x=>!x||!String(x).trim())) continue;
-    const real = idxReal>=0? parseMoney(row[idxReal]) : 0;
-    const est  = idxEst >=0? parseMoney(row[idxEst ]) : 0;
+  // 你的 CSV 欄位必須「一字不差」：
+  // Rank、PLAYER、TEAM、POS、POS'、評分、上季評分、本季增減、真實薪水、評估薪水、差額
+  const idx = (name)=> header.indexOf(name);
+  const idxRank       = idx('Rank');
+  const idxPLAYER     = idx('PLAYER');
+  const idxTEAM       = idx('TEAM');
+  const idxPOS        = idx('POS');
+  // 允許備援：若沒有 POS'，就找 POS2（不做字串替換，只做一次性偵測）
+  const idxPOS2       = (idx("POS'") !== -1 ? idx("POS'") : idx('POS2'));
+  const idxRating     = idx('評分');
+  const idxPrevRating = idx('上季評分');
+  const idxDelta      = idx('本季增減');
+  const idxReal       = idx('真實薪水');
+  const idxEst        = idx('評估薪水');
+  const idxDiff       = idx('差額'); // 若 CSV 也給了差額，讀進來但顯示仍以動態計算為準
+
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.every(x => !x || !String(x).trim())) continue;
+
+    const real = idxReal>=0 ? parseMoney(row[idxReal]) : 0;
+    const est  = idxEst >=0 ? parseMoney(row[idxEst ]) : 0;
+
     out.push({
       id: newId(),
-      Rank: idxRank>=0? Number(row[idxRank])||0 : undefined,
-      PLAYER: idxPLAYER>=0? row[idxPLAYER]: "",
-      TEAM: (idxTEAM>=0? row[idxTEAM]: "").toUpperCase(),
-      POS: idxPOS>=0? row[idxPOS]: "",
-      POS2: idxPOS2>=0? row[idxPOS2]: "",
-      評分: idxRating>=0? Number(row[idxRating])||0 : 0,
-      上季評分: idxPrevRating>=0? Number(row[idxPrevRating])||0 : undefined,
-      本季增減: idxDeltaRating>=0? Number(row[idxDeltaRating])||0 : undefined,
-      真實薪水: real,
-      評估薪水: est,
-      差額: real - est, // 匯入時先算一份；之後顯示/匯出一律動態再算
-      cardImage: null,
+      Rank:        idxRank      >=0 ? Number(row[idxRank])||0 : undefined,
+      PLAYER:      idxPLAYER    >=0 ? row[idxPLAYER] : '',
+      TEAM:        idxTEAM      >=0 ? String(row[idxTEAM]||'').toUpperCase() : '',
+      POS:         idxPOS       >=0 ? row[idxPOS] : '',
+      POS2:        idxPOS2      >=0 ? row[idxPOS2] : '',
+      評分:        idxRating    >=0 ? Number(row[idxRating])||0 : 0,
+      上季評分:    idxPrevRating>=0 ? Number(row[idxPrevRating])||0 : undefined,
+      本季增減:    idxDelta     >=0 ? Number(row[idxDelta])||0 : undefined,
+      真實薪水:    real,
+      評估薪水:    est,
+      差額:        (idxDiff>=0 ? Number(parseMoney(row[idxDiff])) : (est - real)),
+      cardImage:   null,
     });
   }
   return out;
@@ -223,7 +222,7 @@ function TopTabs({tab,setTab}){
   return (
     <div className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur border-b border-zinc-800">
       <div className="w-full px-6 py-3 flex items-center">
-        <div className="font-bold mr-4">🏀 NBA Tool</div>
+        <div className="font-bold mr-4">🏀 NBA 2025 Player Rating</div>
         <TabBtn id="Team" label="Team 球隊" />
         <TabBtn id="Player" label="Player 球員" />
         <TabBtn id="Predict" label="Predict 季前預測" />
@@ -257,127 +256,52 @@ function DownloadBtn({name, text}){
 // ==========================================================
 // Player Tab：匯入/匯出 + 表格 + 球員卡
 // ==========================================================
+// ================= PlayerTab（全聯盟列表，排序） =================
 function PlayerTab({app,setApp,goPlayerCard}){
-  const {players}=app;
+  const players = app?.players || [];
   const [sortKey,setSortKey] = useState('評分');
   const [sortAsc,setSortAsc] = useState(false);
-  const [ms,setMS] = useState({ PLAYER:[], TEAM:[], POS:[], POS2:[] });
 
-  const uniq = (arr)=> Array.from(new Set(arr.filter(Boolean)));
-  const optPLAYER = useMemo(()=> uniq(players.map(p=>String(p.PLAYER||''))).sort((a,b)=>a.localeCompare(b)), [players]);
-  const optTEAM   = useMemo(()=> uniq(players.map(p=>String(p.TEAM||'').toUpperCase())).sort(), [players]);
-  const optPOS    = useMemo(()=> uniq(players.map(p=>String(p.POS||''))).sort(), [players]);
-  const optPOS2   = useMemo(()=> uniq(players.map(p=>String(p.POS2||''))).sort(), [players]);
-
-  const stats=useMemo(()=>{
-    const colsMono=['評分','上季評分'];
-    const initMono=Object.fromEntries(colsMono.map(c=>[c,{min:Infinity,max:-Infinity}]));
-    const initDiv={ '本季增減':{min:Infinity,max:-Infinity}, '差額':{min:Infinity,max:-Infinity} };
+  // 全體分佈（先著色再篩選的規則，這裡沒有篩選，直接用全體）
+  const stats = useMemo(()=>{
+    const monoCols=['評分','上季評分','真實薪水','評估薪水'];
+    const divCols=['本季增減','差額'];
+    const mono=Object.fromEntries(monoCols.map(c=>[c,{min:Infinity,max:-Infinity}]));
+    const div =Object.fromEntries(divCols.map(c=>[c,{min:Infinity,max:-Infinity}]));
     for(const p of players){
-      for(const c of colsMono){ const v=Number(p[c]); if(!isFinite(v)) continue; initMono[c].min=Math.min(initMono[c].min,v); initMono[c].max=Math.max(initMono[c].max,v); }
-      const v1=Number(p['本季增減']); if(isFinite(v1)){ initDiv['本季增減'].min=Math.min(initDiv['本季增減'].min,v1); initDiv['本季增減'].max=Math.max(initDiv['本季增減'].max,v1); }
-      const v2=salaryDiff(p); initDiv['差額'].min=Math.min(initDiv['差額'].min,v2); initDiv['差額'].max=Math.max(initDiv['差額'].max,v2);
+      for(const c of monoCols){ const v=Number(c==='真實薪水'?p['真實薪水']: c==='評估薪水'?p['評估薪水']: p[c]); if(!isFinite(v)) continue; mono[c].min=Math.min(mono[c].min,v); mono[c].max=Math.max(mono[c].max,v); }
+      const d = salaryDiff(p); if(isFinite(d)){ div['差額'].min=Math.min(div['差額'].min,d); div['差額'].max=Math.max(div['差額'].max,d); }
+      const del = Number(p['本季增減']); if(isFinite(del)){ div['本季增減'].min=Math.min(div['本季增減'].min,del); div['本季增減'].max=Math.max(div['本季增減'].max,del); }
     }
-    for(const c of colsMono){ if(initMono[c].min===Infinity){ initMono[c]={min:0,max:1}; } }
-    if(initDiv['本季增減'].min===Infinity){ initDiv['本季增減']={min:-1,max:1}; }
-    if(initDiv['差額'].min===Infinity){ initDiv['差額']={min:-1,max:1}; }
-    return {mono:initMono, div:initDiv};
+    for(const c of Object.keys(mono)){ if(mono[c].min===Infinity){ mono[c]={min:0,max:1}; } }
+    for(const c of Object.keys(div)){ if(div[c].min===Infinity){ div[c]={min:-1,max:1}; } }
+    return {mono,div};
   },[players]);
 
-  const filtered = useMemo(()=>{
-    return players.filter(p=>{
-      if(ms.PLAYER.length && !ms.PLAYER.includes(p.PLAYER)) return false;
-      if(ms.TEAM.length && !ms.TEAM.includes(String(p.TEAM||'').toUpperCase())) return false;
-      if(ms.POS.length && !ms.POS.includes(p.POS)) return false;
-      if(ms.POS2.length && !ms.POS2.includes(p.POS2)) return false;
-      return true;
-    });
-  },[players,ms]);
-
   const rows = useMemo(()=>{
-    const arr=[...filtered]; const dir=sortAsc?1:-1;
-    arr.sort((a,b)=>{ let A=a[sortKey]; let B=b[sortKey]; if(sortKey==='差額'){ A=salaryDiff(a); B=salaryDiff(b); }
-      if(typeof A==='number' && typeof B==='number') return (A-B)*dir; return String(A??'').localeCompare(String(B??''))*dir; });
+    const arr=[...players]; const dir=sortAsc?1:-1;
+    arr.sort((a,b)=>{
+      const A = sortKey==='差額' ? salaryDiff(a) : a[sortKey];
+      const B = sortKey==='差額' ? salaryDiff(b) : b[sortKey];
+      if(typeof A==='number' && typeof B==='number') return (A-B)*dir;
+      return String(A??'').localeCompare(String(B??''))*dir;
+    });
     return arr;
-  },[filtered,sortKey,sortAsc]);
+  },[players,sortKey,sortAsc]);
 
   function header(label,key){ const active=sortKey===key; return (
-    <th className="p-3 cursor-pointer select-none text-lg" onClick={()=>{ if(active) setSortAsc(s=>!s); else { setSortKey(key); setSortAsc(false);} }}>
+    <th className="p-3 cursor-pointer select-none text-lg" onClick={()=>{ if(active) setSortAsc(s=>!s); else { setSortKey(key); setSortAsc(key==='評分'? false:true);} }}>
       <span className="underline decoration-dotted underline-offset-4">{label}</span>{' '}{active ? (sortAsc ? '▲':'▼') : ''}
     </th>
   ); }
 
-  function MultiSelect({label, options, values, onChange}){
-    const [open,setOpen]=useState(false);
-    const toggle=(v)=>{ onChange(values.includes(v)? values.filter(x=>x!==v): [...values,v]); };
-    return (
-      <div className="relative inline-block mr-2 mb-2">
-        <button className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm" onClick={()=>setOpen(o=>!o)}>
-          {label}{values.length?`（${values.length}）`:''}
-        </button>
-        {open && (
-          <div className="absolute z-50 mt-2 max-h-72 w-72 overflow-auto p-2 rounded-2xl border bg-zinc-900 text-zinc-100 border-zinc-700 shadow-lg">
-            <div className="text-xs px-1 mb-1 text-zinc-400">可複選</div>
-            <ul className="grid grid-cols-1 gap-1 pr-1">
-              {options.map(opt=> (
-                <label key={opt||'__empty'} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-zinc-800 cursor-pointer">
-                  <input type="checkbox" className="accent-blue-500" checked={values.includes(opt)} onChange={()=>toggle(opt)} />
-                  <span className="text-base">{opt||'（空值）'}</span>
-                </label>
-              ))}
-            </ul>
-            <div className="flex justify-between mt-2">
-              <button className="text-xs underline" onClick={()=>onChange([])}>清除</button>
-              <button className="text-xs underline" onClick={()=>setOpen(false)}>完成</button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  async function onImportCSV(file){
-    try{
-      const text=await readFileAsText(file);
-      const list=csvToPlayers(text);
-      if(!list.length) return alert('CSV 內容解析不到任何球員資料');
-      const next={...app, players:list}; setApp(next); saveApp(next);
-    }catch(e){ alert('CSV 匯入失敗：'+e.message); }
-  }
-
-  function exportCSV(){ const csv=playersToCSV(rows); const a=document.createElement('a'); const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.href=url; a.download='players.csv'; a.click(); URL.revokeObjectURL(url); }
-  function exportAllJSON(){ const a=document.createElement('a'); const url=URL.createObjectURL(new Blob([JSON.stringify(app,null,2)],{type:'application/json'})); a.href=url; a.download='nba_all_data.json'; a.click(); URL.revokeObjectURL(url); }
-  async function importAllJSON(file){ try{ const text=await readFileAsText(file); const data=JSON.parse(text); const merged={...DEFAULT_STATE, ...data}; setApp(merged); saveApp(merged);}catch(e){ alert('JSON 匯入失敗：'+e.message);} }
-
   return (
     <div className="max-w-[2400px] mx-auto px-6 py-6">
-      <Section title="資料匯入/匯出">
-        <div className="flex items-center gap-2 flex-wrap">
-          <label className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm cursor-pointer">匯入 CSV
-            <input type="file" accept=".csv,text/csv" className="hidden" onChange={e=>e.target.files?.[0]&&onImportCSV(e.target.files[0])} />
-          </label>
-          <button className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm" onClick={exportCSV}>匯出 CSV（套用篩選/排序）</button>
-          <button className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm" onClick={exportAllJSON}>匯出 JSON（全站備份）</button>
-          <label className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm cursor-pointer">匯入 JSON（全站還原）
-            <input type="file" accept="application/json" className="hidden" onChange={e=>e.target.files?.[0]&&importAllJSON(e.target.files[0])} />
-          </label>
-        </div>
-      </Section>
-
-      <Section title="篩選（可複選）">
-        <div className="flex flex-wrap items-center">
-          <MultiSelect label="PLAYER" options={optPLAYER} values={ms.PLAYER} onChange={(v)=>setMS(s=>({...s,PLAYER:v}))} />
-          <MultiSelect label="TEAM"   options={optTEAM}   values={ms.TEAM}   onChange={(v)=>setMS(s=>({...s,TEAM:v}))} />
-          <MultiSelect label="POS"    options={optPOS}    values={ms.POS}    onChange={(v)=>setMS(s=>({...s,POS:v}))} />
-          <MultiSelect label="POS'"   options={optPOS2}   values={ms.POS2}   onChange={(v)=>setMS(s=>({...s,POS2:v}))} />
-        </div>
-      </Section>
-
       <Section title="球員表（點欄位可排序）">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[80vh]">
           <table className="min-w-full text-lg">
-            <thead>
-              <tr className="text-left font-semibold">
+            <thead className="sticky top-0 z-10 bg-zinc-900">
+              <tr className="text-left font-semibold border-b border-zinc-700">
                 {header('Rank','Rank')}
                 {header('PLAYER','PLAYER')}
                 {header('TEAM','TEAM')}
@@ -395,19 +319,19 @@ function PlayerTab({app,setApp,goPlayerCard}){
               {rows.map(p=> {
                 const diff = salaryDiff(p);
                 return (
-                <tr key={p.id} className="border-t border-zinc-800">
-                  <td className="p-3">{p.Rank??''}</td>
-                  <td className="p-3 text-blue-400 underline-offset-2 hover:underline cursor-pointer" onClick={()=>goPlayerCard(p)}>{p.PLAYER}</td>
-                  <td className="p-3">{p.TEAM}</td>
-                  <td className="p-3">{p.POS}</td>
-                  <td className="p-3">{p.POS2}</td>
-                  <td className="p-3" style={{background:colorMono(Number(p.評分),  stats.mono['評分'].min,    stats.mono['評分'].max)}}>{p.評分}</td>
-                  <td className="p-3" style={{background:colorMono(Number(p.上季評分),stats.mono['上季評分'].min,stats.mono['上季評分'].max)}}>{p.上季評分??''}</td>
-                  <td className="p-3" style={{background:colorDiverge(Number(p.本季增減),stats.div['本季增減'].min,stats.div['本季增減'].max)}}>{p.本季增減??''}</td>
-                  <td className="p-3">{fmtMoney(p.真實薪水)}</td>
-                  <td className="p-3">{fmtMoney(p.評估薪水)}</td>
-                  <td className="p-3 font-medium" style={{background:colorDiverge(diff,stats.div['差額'].min,stats.div['差額'].max)}}>{fmtMoney(diff)}</td>
-                </tr>
+                  <tr key={p.id} className="border-t border-zinc-800">
+                    <td className="p-3">{p.Rank??''}</td>
+                    <td className="p-3 text-blue-400 underline-offset-2 hover:underline cursor-pointer" onClick={()=>goPlayerCard(p)}>{p.PLAYER}</td>
+                    <td className="p-3">{p.TEAM}</td>
+                    <td className="p-3">{p.POS}</td>
+                    <td className="p-3">{p.POS2}</td>
+                    <td className="p-3" style={{background:colorMono(Number(p.評分),  stats.mono['評分'].min,    stats.mono['評分'].max)}}>{p.評分}</td>
+                    <td className="p-3" style={{background:colorMono(Number(p.上季評分),stats.mono['上季評分'].min,stats.mono['上季評分'].max)}}>{p.上季評分??''}</td>
+                    <td className="p-3" style={{background:colorDiverge(Number(p.本季增減),stats.div['本季增減'].min,stats.div['本季增減'].max)}}>{p.本季增減??''}</td>
+                    <td className="p-3" style={{background:colorMono(Number(p.真實薪水),stats.mono['真實薪水'].min,stats.mono['真實薪水'].max)}}>{fmtMoney(p.真實薪水)}</td>
+                    <td className="p-3" style={{background:colorMono(Number(p.評估薪水),stats.mono['評估薪水'].min,stats.mono['評估薪水'].max)}}>{fmtMoney(p.評估薪水)}</td>
+                    <td className="p-3 font-medium" style={{background:colorDiverge(diff,stats.div['差額'].min,stats.div['差額'].max)}}>{fmtMoney(diff)}</td>
+                  </tr>
                 );
               })}
             </tbody>
@@ -418,101 +342,85 @@ function PlayerTab({app,setApp,goPlayerCard}){
   );
 }
 
-function PlayerCard({player, setApp, app, back, allPlayers, selectPlayer, goTeam}){
-  if(!player) return null;
+// ================= PlayerCard（球員卡） =================
+function PlayerCard({app,setApp,player,back,allPlayers,selectPlayer,goTeam}){
+  const isAdmin = (typeof window!=='undefined') && (new URLSearchParams(window.location.search).get('admin')==='1');
+  const sameTeamPlayers = useMemo(()=> (allPlayers||[]).filter(x=>x.TEAM===player?.TEAM),[allPlayers,player]);
 
-  const sameTeam = useMemo(()=> (allPlayers||[]).filter(p=>p.TEAM===player.TEAM), [allPlayers,player]);
-  const teamMeta = TEAMS.find(t=>t.abbr===player.TEAM);
-
-  async function onUpload(file){ const url=await readFileAsDataURL(file); const next={...app, players: app.players.map(p=> p.id===player.id? {...p, cardImage:url}: p)}; setApp(next); saveApp(next); }
+  async function onUploadCard(file){
+    const url = await readFileAsDataURL(file);
+    const nextPlayers = (app.players||[]).map(x=> x.id===player.id ? {...x, cardImage:url} : x);
+    const next = {...app, players: nextPlayers};
+    setApp(next); saveApp(next);
+    const updated = nextPlayers.find(x=>x.id===player.id);
+    if(updated) selectPlayer(updated);
+  }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <button onClick={back} className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">← 返回 Player</button>
-        <button onClick={()=> teamMeta && goTeam(teamMeta.abbr)} className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">← 返回 {teamMeta?`${teamMeta.nameZh}（${teamMeta.abbr}）`: 'Team'}</button>
-        <div className="ml-auto"></div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="text-sm text-zinc-400">同隊球員
-          <select className="ml-2 px-3 py-2 rounded-xl border bg-zinc-900 text-zinc-100 border-zinc-700"
-            value={player.id}
-            onChange={e=>{ const p=(sameTeam.find(x=>x.id===e.target.value)); if(p) selectPlayer(p); }}>
-            {sameTeam.map(p=> <option key={p.id} value={p.id}>{p.PLAYER}</option>)}
-          </select>
-        </label>
-        <label className="text-sm text-zinc-400">所有球員
-          <select className="ml-2 px-3 py-2 rounded-xl border bg-zinc-900 text-zinc-100 border-zinc-700"
-            value={player.id}
-            onChange={e=>{ const p=(allPlayers||[]).find(x=>x.id===e.target.value); if(p) selectPlayer(p); }}>
+    <div className="max-w-[1200px] mx-auto px-6 py-6 space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <button onClick={back} className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">← 返回球員頁</button>
+        {player?.TEAM && (
+          <button onClick={()=>goTeam(player.TEAM)} className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">← 返回 {player.TEAM}</button>
+        )}
+        <div className="text-2xl font-bold">{player?.PLAYER}</div>
+        <div className="text-base text-zinc-400">{player?.TEAM} · {player?.POS}{player?.POS2?` / ${player.POS2}`:''}</div>
+        <div className="ml-auto flex items-center gap-2">
+          <select className="px-3 py-2 rounded-xl border bg-zinc-900 text-zinc-100 border-zinc-700" value={player?.id} onChange={e=>{ const p=(allPlayers||[]).find(x=>x.id===e.target.value); if(p) selectPlayer(p); }}>
             {(allPlayers||[]).map(p=> <option key={p.id} value={p.id}>{p.PLAYER}（{p.TEAM}）</option>)}
           </select>
-        </label>
+          <select className="px-3 py-2 rounded-xl border bg-zinc-900 text-zinc-100 border-zinc-700" value={player?.id} onChange={e=>{ const p=sameTeamPlayers.find(x=>x.id===e.target.value); if(p) selectPlayer(p); }}>
+            {sameTeamPlayers.map(p=> <option key={p.id} value={p.id}>{p.PLAYER}</option>)}
+          </select>
+        </div>
       </div>
 
-      <h2 className="text-3xl font-bold">{player.PLAYER}</h2>
-      <div className="mt-1 text-base text-zinc-400">{player.TEAM} · {player.POS} {player.POS2?`/ ${player.POS2}`:''}</div>
-
-      <Section title="球員卡圖片" right={<label className="cursor-pointer px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">上傳
-        <input type="file" accept="image/*" className="hidden" onChange={e=>e.target.files?.[0]&&onUpload(e.target.files[0])} /></label>}>
-        {player.cardImage ? (
+      <Section title="球員卡圖片" right={isAdmin ? (
+        <label className="cursor-pointer px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">上傳
+          <input type="file" accept="image/*" className="hidden" onChange={e=> e.target.files?.[0] && onUploadCard(e.target.files[0])} />
+        </label>
+      ) : null}>
+        {player?.cardImage ? (
           <div className="overflow-auto border border-zinc-700 rounded-xl p-2" style={{maxHeight:'80vh'}}>
             <img src={player.cardImage} alt="card" className="block max-w-none h-auto" />
           </div>
         ) : (
-          <div className="text-base text-zinc-400">尚未上傳。建議尺寸：直式長圖，可無上限高度，會提供滾動。</div>
+          <div className="text-base text-zinc-400">尚未上傳球員卡圖片（建議直式）。{isAdmin? ' 使用上傳按鈕新增。':''}</div>
         )}
       </Section>
     </div>
   );
 }
 
-// ==========================================================
-// Team Tab：球隊清單 -> 詳細頁
-// ==========================================================
-function TeamGrid({teams, onSelect}){
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-      {teams.map(t=> (
-        <div key={t.abbr} onClick={()=>onSelect(t.abbr)} className="p-3 rounded-2xl border bg-zinc-900 text-zinc-100 border-zinc-700 cursor-pointer hover:shadow">
-          <div className="text-xs text-zinc-400">{t.conf}</div>
-          <div className="text-xl font-bold">{t.abbr}</div>
-          <div className="text-base">{t.nameZh}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
+// ================= TeamDetail（單隊頁：Depth + 表格） =================（單隊頁：Depth + 表格） =================
+function TeamDetail({abbr, app, setApp, openPlayerCard, onSwitchTeam, isAdmin}){
+  const all = app?.players || [];
+  const team = TEAMS.find(t=>t.abbr===abbr) || {abbr, nameZh:'', conf:''};
+  const img  = app?.teamImages?.[abbr] || null;
+  const [sortKey,setSortKey] = useState('評分');
+  const [sortAsc,setSortAsc] = useState(false);
 
-function TeamDetail({abbr, app, setApp, openPlayerCard, onSwitchTeam}){
-  const team = TEAMS.find(t=>t.abbr===abbr);
-  const img = app.teamImages[abbr];
-  const all = app.players || [];
-
-  const [sortKey,setSortKey] = useState('Rank');
-  const [sortAsc,setSortAsc] = useState(true);
-
-  const teamPlayers = useMemo(()=> all.filter(p=> (p.TEAM||'').toUpperCase()===abbr), [all,abbr]);
+  const teamPlayers = useMemo(()=> all.filter(p=>p.TEAM===abbr),[all,abbr]);
 
   const stats=useMemo(()=>{
-    const monoCols=['評分','上季評分'];
-    const divCols=['本季增減'];
+    const monoCols=['評分','上季評分','真實薪水','評估薪水'];
+    const divCols=['本季增減','差額'];
     const mono=Object.fromEntries(monoCols.map(c=>[c,{min:Infinity,max:-Infinity}]));
     const div =Object.fromEntries(divCols.map(c=>[c,{min:Infinity,max:-Infinity}]));
     for(const p of all){
-      for(const c of monoCols){ const v=Number(p[c]); if(!isFinite(v)) continue; mono[c].min=Math.min(mono[c].min,v); mono[c].max=Math.max(mono[c].max,v); }
-      const v2=Number(p['本季增減']); if(isFinite(v2)){ div['本季增減'].min=Math.min(div['本季增減'].min,v2); div['本季增減'].max=Math.max(div['本季增減'].max,v2); }
+      for(const c of monoCols){ const v=Number(c==='真實薪水'?p['真實薪水']: c==='評估薪水'?p['評估薪水']: p[c]); if(!isFinite(v)) continue; mono[c].min=Math.min(mono[c].min,v); mono[c].max=Math.max(mono[c].max,v); }
+      const d = salaryDiff(p); if(isFinite(d)){ div['差額'].min=Math.min(div['差額'].min,d); div['差額'].max=Math.max(div['差額'].max,d); }
+      const del = Number(p['本季增減']); if(isFinite(del)){ div['本季增減'].min=Math.min(div['本季增減'].min,del); div['本季增減'].max=Math.max(div['本季增減'].max,del); }
     }
-    for(const c of monoCols){ if(mono[c].min===Infinity){ mono[c]={min:0,max:1}; } }
-    if(div['本季增減'].min===Infinity){ div['本季增減']={min:-1,max:1}; }
+    for(const c of Object.keys(mono)){ if(mono[c].min===Infinity){ mono[c]={min:0,max:1}; } }
+    for(const c of Object.keys(div)){ if(div[c].min===Infinity){ div[c]={min:-1,max:1}; } }
     return {mono,div};
   },[all]);
 
   const rows = useMemo(()=>{ const arr=[...teamPlayers]; const dir=sortAsc?1:-1; arr.sort((a,b)=>{ const A=a[sortKey]; const B=b[sortKey]; if(typeof A==='number' && typeof B==='number') return (A-B)*dir; return String(A??'').localeCompare(String(B??''))*dir; }); return arr; },[teamPlayers,sortKey,sortAsc]);
 
   function header(label,key){ const active=sortKey===key; return (
-    <th className="p-3 cursor-pointer select-none text-lg" onClick={()=>{ if(active) setSortAsc(s=>!s); else { setSortKey(key); setSortAsc(true);} }}>
+    <th className="p-3 cursor-pointer select-none text-lg" onClick={()=>{ if(active) setSortAsc(s=>!s); else { setSortKey(key); setSortAsc(key==='評分'? false:true);} }}>
       <span className="underline decoration-dotted underline-offset-4">{label}</span>{' '}{active ? (sortAsc ? '▲':'▼') : ''}
     </th>
   ); }
@@ -531,10 +439,13 @@ function TeamDetail({abbr, app, setApp, openPlayerCard, onSwitchTeam}){
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Section title="球隊 Depth Chart" right={<label className="cursor-pointer px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">上傳
-          <input type="file" accept="image/*" className="hidden" onChange={e=>e.target.files?.[0]&&onUploadDepth(e.target.files[0])} /></label>}>
+        <Section title="球隊 Depth Chart" right={isAdmin ? (
+          <label className="cursor-pointer px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm">上傳
+            <input type="file" accept="image/*" className="hidden" onChange={e=> e.target.files?.[0] && onUploadDepth(e.target.files[0])} />
+          </label>
+        ) : null}>
           {img ? (
-            <div className="border border-zinc-700 rounded-xl p-2 h-[86vh] overflow-auto">
+            <div className="border border-zinc-700 rounded-xl p-2 h-[92vh] overflow-auto">
               <img src={img} alt="depth" className="max-w-full h-auto object-contain" />
             </div>
           ) : (
@@ -542,7 +453,8 @@ function TeamDetail({abbr, app, setApp, openPlayerCard, onSwitchTeam}){
           )}
         </Section>
 
-        <Section title={`球員資訊（${abbr}）`}>
+        <div className="space-y-4">
+        <Section title={`球員評分（${abbr}）`}>
           <div className="overflow-auto">
             <table className="min-w-full text-lg">
               <thead>
@@ -570,12 +482,47 @@ function TeamDetail({abbr, app, setApp, openPlayerCard, onSwitchTeam}){
             </table>
           </div>
         </Section>
+
+        <Section title="薪資分析">
+          <div className="overflow-auto">
+            <table className="min-w-full text-lg">
+              <thead>
+                <tr className="text-left font-semibold">
+                  <th className="p-3">Rank</th>
+                  <th className="p-3">PLAYER</th>
+                  <th className="p-3">POS</th>
+                  <th className="p-3">評分</th>
+                  <th className="p-3">真實薪水</th>
+                  <th className="p-3">評估薪水</th>
+                  <th className="p-3">差額</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(p=> {
+                  const diff = salaryDiff(p);
+                  return (
+                    <tr key={p.id} className="border-t border-zinc-800">
+                      <td className="p-3">{p.Rank??''}</td>
+                      <td className="p-3 text-blue-400 underline-offset-2 hover:underline cursor-pointer" onClick={()=>openPlayerCard(p)}>{p.PLAYER}</td>
+                      <td className="p-3">{p.POS}{p.POS2?` / ${p.POS2}`:''}</td>
+                      <td className="p-3" style={{background:colorMono(Number(p.評分),  stats.mono['評分'].min,    stats.mono['評分'].max)}}>{p.評分}</td>
+                      <td className="p-3" style={{background:colorMono(Number(p.真實薪水), stats.mono['真實薪水'].min, stats.mono['真實薪水'].max)}}>{fmtMoney(p.真實薪水)}</td>
+                      <td className="p-3" style={{background:colorMono(Number(p.評估薪水), stats.mono['評估薪水'].min, stats.mono['評估薪水'].max)}}>{fmtMoney(p.評估薪水)}</td>
+                      <td className="p-3 font-medium" style={{background:colorDiverge(diff, stats.div['差額'].min, stats.div['差額'].max)}}>{fmtMoney(diff)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+        </div>
       </div>
     </div>
   );
 }
 
-function TeamTab({app,setApp, openPlayerCard, teamAbbr, setTeamAbbr}){
+function TeamTab({app,setApp, openPlayerCard, teamAbbr, setTeamAbbr, isAdmin}){
   return (
     <div className="px-6 py-6">
       {!teamAbbr ? (
@@ -591,7 +538,7 @@ function TeamTab({app,setApp, openPlayerCard, teamAbbr, setTeamAbbr}){
         </div>
       ) : (
         <div className="max-w-[2400px] mx-auto">
-          <TeamDetail abbr={teamAbbr} app={app} setApp={setApp} openPlayerCard={openPlayerCard} onSwitchTeam={setTeamAbbr} />
+          <TeamDetail abbr={teamAbbr} app={app} setApp={setApp} openPlayerCard={openPlayerCard} onSwitchTeam={setTeamAbbr} isAdmin={isAdmin} />
         </div>
       )}
     </div>
@@ -601,6 +548,24 @@ function TeamTab({app,setApp, openPlayerCard, teamAbbr, setTeamAbbr}){
 // ==========================================================
 // Predict Tab：東/西 15 隊 + 可填勝場 + 可排序
 // ==========================================================
+// ==========================================================
+// TeamGrid：30 隊清單（可點選進入單隊頁）
+// ==========================================================
+function TeamGrid({teams, onSelect}){
+  return (
+    <div className="grid grid-cols-5 gap-3">
+      {teams.map(t=> (
+        <button key={t.abbr}
+                onClick={()=>onSelect && onSelect(t.abbr)}
+                className="text-left px-4 py-3 rounded-2xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 transition shadow-sm">
+          <div className="text-xl font-bold tracking-wider">{t.abbr}</div>
+          <div className="text-sm text-zinc-400 mt-0.5">{t.nameZh}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function PredictTab({app,setApp}){
   const predictLine = app?.predictLine || {};
   const predictOpt  = app?.predictOpt  || {};
@@ -692,7 +657,9 @@ function PredictTab({app,setApp}){
 function assert(name, cond){ console[cond? 'log':'error'](`🧪 ${cond?'PASS':'FAIL'} - ${name}`); }
 export function runTests(){
   try{
-    const csv = "Rank,PLAYER,TEAM,POS,POS',評分,上季評分,本季增減,真實薪水,評估薪水,差額\n1,A,ATL,G,,9.5,8.5,1.0,1000000,1200000,200000\n2,\"B, Jr.\",BOS,F,C,8,8.2,-0.2,2000000,1500000,-500000";
+    const csv = `Rank,PLAYER,TEAM,POS,POS',評分,上季評分,本季增減,真實薪水,評估薪水,差額
+1,A,ATL,G,,9.5,8.5,1.0,1000000,1200000,200000
+2,"B, Jr.",BOS,F,C,8,8.2,-0.2,2000000,1500000,-500000`;
     const rows = parseCSV(csv);
     assert('parseCSV rows length', rows.length===3);
     assert('parseCSV quoted comma', rows[2][1]==='B, Jr.');
@@ -701,7 +668,8 @@ export function runTests(){
     assert('csvToPlayers length', ps.length===2);
     assert('csvToPlayers TEAM upper', ps[0].TEAM==='ATL');
     assert('csvToPlayers delta keep', ps[1].本季增減===-0.2);
-    assert('salaryDiff calc', salaryDiff(ps[0])===-200000);
+    assert('salaryDiff calc row1', salaryDiff(ps[0])===200000);
+    assert('salaryDiff calc row2', salaryDiff(ps[1])===-500000);
 
     const csv2 = playersToCSV(ps);
     assert("playersToCSV header POS'", csv2.split('\n')[0].includes("POS'"));
@@ -726,12 +694,12 @@ export function runTests(){
 // App 主體（Dark-only）
 // ==========================================================
 export default function App(){
-  const [tab,setTab]=useState('Player');
-  const [app,setApp]=useState(()=> loadApp() || DEFAULT_STATE);
-  const [playerCard,setPlayerCard]=useState(null);
-  const [teamAbbr, setTeamAbbr] = useState("");
-
-  useEffect(()=>{ /* 深色固定 */ },[]);
+  const [app,setApp] = useState(loadApp()||DEFAULT_STATE);
+  const [tab,setTab] = useState('Player');
+  const [teamAbbr,setTeamAbbr] = useState('LAL');
+  const [playerCard,setPlayerCard] = useState(null);
+  useEffect(()=>{ document.title='NBA 2025 Player Rating'; },[]);
+  const isAdmin = (typeof window!=='undefined') && (new URLSearchParams(window.location.search).get('admin')==='1');
 
   function openPlayerCard(p){ setPlayerCard(p); setTab('Player'); }
 
@@ -743,6 +711,7 @@ export default function App(){
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <TopTabs tab={tab} setTab={setTabAndMaybeReset} />
 
+      {isAdmin && (
       <div className="w-full px-6 py-4 flex items-center gap-2">
         <label className="px-3 py-2 rounded-xl border text-base bg-zinc-900 text-zinc-100 border-zinc-700 shadow-sm cursor-pointer">匯入 JSON
           <input type="file" accept="application/json" className="hidden" onChange={e=>e.target.files?.[0]&& (async (f)=>{ try{ const text=await readFileAsText(f); const data=JSON.parse(text); const merged={...DEFAULT_STATE,...data}; setApp(merged); saveApp(merged);} catch(err){ alert('JSON 匯入失敗：'+err.message); } })(e.target.files[0])} />
@@ -750,6 +719,7 @@ export default function App(){
         <DownloadBtn name="nba_all_data.json" text={JSON.stringify(app,null,2)} />
         <button className="ml-auto px-3 py-2 rounded-xl border text-xs bg-zinc-900 text-zinc-100 border-zinc-700" onClick={()=>runTests()}>🧪 執行內建測試</button>
       </div>
+      )}
 
       {tab==='Player' && !playerCard && (
         <PlayerTab app={app} setApp={setApp} goPlayerCard={openPlayerCard} />
@@ -766,7 +736,7 @@ export default function App(){
         />
       )}
       {tab==='Team' && (
-        <TeamTab app={app} setApp={setApp} openPlayerCard={openPlayerCard} teamAbbr={teamAbbr} setTeamAbbr={setTeamAbbr} />
+        <TeamTab app={app} setApp={setApp} openPlayerCard={openPlayerCard} teamAbbr={teamAbbr} setTeamAbbr={setTeamAbbr} isAdmin={isAdmin} />
       )}
       {tab==='Predict' && (
         <PredictTab app={app} setApp={setApp} />
@@ -777,7 +747,7 @@ export default function App(){
           📌 提示：Player 匯入 CSV 欄位支援：Rank、PLAYER、TEAM、POS、POS'、評分、上季評分、本季增減、真實薪水、評估薪水、差額（由程式計算）。<br/>
           條件色規則：
           <br/>• 評分/上季評分：#09734E，低值→透明，高值→不透明
-          <br/>• 本季增減/差額：0 為中點；&gt;0 #09734E、&lt;0 #4A1C1C；數值越極端透明度越高
+          <br/>• 本季增減/差額：0 為中點；&gt;0 #09734E、&lt;0 #7D2C2D；數值越極端透明度越高
         </div>
       </footer>
     </div>
