@@ -729,19 +729,10 @@ export default function App(){
       localStorage.setItem(PRESET_FLAG_KEY, '1');
       console.log('Preset loaded from', url, '(forced:', FORCE_PRESET, ')');
     }catch(err){ console.warn('Preset load skipped:', err); }
-  });
-      if(!res.ok) return;
-      const data = await res.json();
-      const merged = { ...DEFAULT_STATE, ...data };
-      saveApp(merged);
-      setApp(merged);
-      localStorage.setItem(PRESET_FLAG_KEY, '1');
-      console.log('Preset loaded from', url);
-    }catch(err){ console.warn('Preset load skipped:', err); }
   }
   const [app,setApp] = useState(loadApp()||DEFAULT_STATE);
   useEffect(()=>{ tryLoadPresetOnce(app); /* 首次載入：或 ?preset=1 強制載入 */ },[]);
-  (()=>{ tryLoadPresetOnce(app); /* 首次載入：若本機無資料，嘗試抓 /data/preset.json */ },[]);
+
   const [tab,setTab] = useState('Player');
   const [teamAbbr,setTeamAbbr] = useState('LAL');
   const [playerCard,setPlayerCard] = useState(null);
