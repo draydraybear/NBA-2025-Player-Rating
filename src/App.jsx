@@ -544,7 +544,14 @@ function saveApp(data){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(da
 const DEFAULT_STATE={ players:[], teamImages:Object.fromEntries(TEAMS.map(t=>[t.abbr,null])), predictWins:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictLine:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictOpt:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictPes:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])) };
 
 export default function App(){
-  async function tryLoadPresetOnce(current){ try{ if(typeof window==='undefined') return; if(FORCE_PRESET){ try{ localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PRESET_FLAG_KEY);}catch{} } const already=localStorage.getItem(PRESET_FLAG_KEY); const empty=!current||!Array.isArray(current.players)||current.players.length===0; if(!FORCE_PRESET && (already || !empty)) return; const url=getPresetURL(); const res=await fetch(url,{cache:'no-store'}); if(!res.ok){ console.warn('Preset fetch not ok:', res.status); return; } const data=await res.json(); const merged={...DEFAULT_STATE, ...data}; saveApp(merged); setApp(merged); localStorage.setItem(PRESET_FLAG_KEY,'1'); console.log('Preset loaded from', url, '(forced:', FORCE_PRESET, ')'); }catch(err){ console.warn('Preset load skipped:', err); } }
+  async function tryLoadPresetOnce(current){ try{ if(typeof window==='undefined') return; if(FORCE_PRESET){ try{ localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PRESET_FLAG_KEY);}catch{} } const already=localStorage.getItem(PRESET_FLAG_KEY);
+    const empty=!current || !Array.isArray(current.players) || current.players.length===0;
+    // 修正：若資料為空就一定嘗試載入 preset，不再因為旗標存在而跳過
+    if(!FORCE_PRESET){
+      const haveLoaded=!!already;
+      const hasData=!empty;
+      if(haveLoaded && hasData) return; // 只有「已載入且目前有資料」才跳過
+    } const url=getPresetURL(); const res=await fetch(url,{cache:'no-store'}); if(!res.ok){ console.warn('Preset fetch not ok:', res.status); return; } const data=await res.json(); const merged={...DEFAULT_STATE, ...data}; saveApp(merged); setApp(merged); localStorage.setItem(PRESET_FLAG_KEY,'1'); console.log('Preset loaded from', url, '(forced:', FORCE_PRESET, ')'); }catch(err){ console.warn('Preset load skipped:', err); } }
   const [app,setApp]=useState(loadApp()||DEFAULT_STATE);
   useEffect(()=>{ tryLoadPresetOnce(app); },[]);
   const [tab,setTab]=useState('Player');
