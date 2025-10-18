@@ -48,6 +48,7 @@ const WEST = TEAMS.filter(t=>t.conf==='West').sort((a,b)=>a.abbr.localeCompare(b
 const STORAGE_KEY = "nba_tabs_app_v1";
 const PRESET_FLAG_KEY = "nba_preset_loaded_v1"; // 避免重覆載入
 const QS = (typeof window!=="undefined")? new URLSearchParams(window.location.search): null;
+const IS_DEBUG = !!(QS && QS.get('debug')==='1');
 const FORCE_PRESET = !!(QS && (QS.get('preset')==='1' || QS.get('reset')==='1'));
 
 // --- Preset URL（避免 import.meta） ---
@@ -544,15 +545,20 @@ function saveApp(data){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(da
 const DEFAULT_STATE={ players:[], teamImages:Object.fromEntries(TEAMS.map(t=>[t.abbr,null])), predictWins:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictLine:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictOpt:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictPes:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])) };
 
 export default function App(){
-  async function tryLoadPresetOnce(current){ try{ if(typeof window==='undefined') return; if(FORCE_PRESET){ try{ localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PRESET_FLAG_KEY);}catch{} } const already=localStorage.getItem(PRESET_FLAG_KEY);
+  // Debug 記錄僅在 ?debug=1 時啟用
+  const [dbg,setDbg] = useState([]);
+  const d = (m)=>{ if(!IS_DEBUG) return; try{ setDbg(x=>[...x, `[${new Date().toLocaleTimeString()}] ${m}`]); }catch{} };
+  async function tryLoadPresetOnce(current){ d(`tryLoadPresetOnce start FORCE_PRESET=${FORCE_PRESET}`); try{ if(typeof window==='undefined') return; if(FORCE_PRESET){ try{ localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PRESET_FLAG_KEY);}catch{} } const already=localStorage.getItem(PRESET_FLAG_KEY);
     const empty=!current || !Array.isArray(current.players) || current.players.length===0;
+    d(`flags already=${!!already} empty=${empty}`);
     // 修正：若資料為空就一定嘗試載入 preset，不再因為旗標存在而跳過
     if(!FORCE_PRESET){
       const haveLoaded=!!already;
       const hasData=!empty;
-      if(haveLoaded && hasData) return; // 只有「已載入且目前有資料」才跳過
-    } const url=getPresetURL(); const res=await fetch(url,{cache:'no-store'}); if(!res.ok){ console.warn('Preset fetch not ok:', res.status); return; } const data=await res.json(); const merged={...DEFAULT_STATE, ...data}; saveApp(merged); setApp(merged); localStorage.setItem(PRESET_FLAG_KEY,'1'); console.log('Preset loaded from', url, '(forced:', FORCE_PRESET, ')'); }catch(err){ console.warn('Preset load skipped:', err); } }
+      if(haveLoaded && hasData){ d('skip preset: already && hasData'); return; } // 只有「已載入且目前有資料」才跳過
+    } const url=getPresetURL(); d(`fetch ${url}`); const res=await fetch(url,{cache:'no-store'}); d(`status ${res.status}`); if(!res.ok){ console.warn('Preset fetch not ok:', res.status); return; } const data=await res.json(); d(`preset players=${Array.isArray(data?.players)?data.players.length:0}`); const merged={...DEFAULT_STATE, ...data}; saveApp(merged); setApp(merged); localStorage.setItem(PRESET_FLAG_KEY,'1'); d('preset applied and saved'); console.log('Preset loaded from', url, '(forced:', FORCE_PRESET, ')'); }catch(err){ console.warn('Preset load skipped:', err); } }
   const [app,setApp]=useState(loadApp()||DEFAULT_STATE);
+  useEffect(()=>{ d(`boot: localStorage players=${(loadApp()?.players||[]).length}`); },[]);
   useEffect(()=>{ tryLoadPresetOnce(app); },[]);
   const [tab,setTab]=useState('Player');
   const [teamAbbr,setTeamAbbr]=useState('LAL');
@@ -588,6 +594,7 @@ const isAdmin=(typeof window!=="undefined") && (new URLSearchParams(window.locat
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       {FORCE_PRESET && (<div className="px-6 py-2 text-xs text-amber-300 bg-amber-950/40 border-b border-amber-800">已啟用「強制載入預設資料」。此訊息僅本次可見。</div>)}
+      {IS_DEBUG && (<div className="px-6 py-2 text-xs font-mono text-emerald-200 bg-emerald-950/40 border-b border-emerald-800 whitespace-pre-wrap">{dbg.length? dbg.join('\n') : 'debug: no logs yet'}</div>)}
       <TopTabs tab={tab} setTab={setTabAndMaybeReset} />
 
       {isAdmin && (
