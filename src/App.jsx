@@ -53,9 +53,26 @@ const FORCE_PRESET = !!(QS && (QS.get('preset')==='1' || QS.get('reset')==='1'))
 
 // --- Preset URL（避免 import.meta） ---
 function getPresetURL(){
-  try{ if(typeof document!=="undefined"){ const baseHref=document.querySelector('base')?.getAttribute('href')||'/'; const base=baseHref.endsWith('/')?baseHref:baseHref+'/'; return base+"data/preset.json"; } }catch{}
-  try{ if(typeof location!=="undefined"){ const dir=location.pathname.endsWith('/')?location.pathname:location.pathname.replace(/[^/]+$/,''); return `${dir}data/preset.json`; } }catch{}
-  return '/data/preset.json';
+  try{
+    if(typeof document!=="undefined"){
+      const baseEl=document.querySelector('base');
+      if(baseEl){
+        let baseHref=baseEl.getAttribute('href')||'/';
+        if(!baseHref.endsWith('/')) baseHref+='/';
+        return baseHref+"data/preset.json";
+      }
+    }
+  }catch{}
+  try{
+    if(typeof location!=="undefined"){
+      // 依目前頁面的「目錄」推導（支援 GitHub Pages 子路徑）
+      const dir=location.pathname.replace(/[^/]*$/, '');
+      const norm=dir.endsWith('/')?dir:dir+'/';
+      return norm+"data/preset.json";
+    }
+  }catch{}
+  // 最後退回相對路徑（避免誤用根目錄 "/data/..." 導致 404）
+  return 'data/preset.json';
 }
 
 // --- 小工具 ---
@@ -86,7 +103,6 @@ async function readFileAsText(file){
   } catch {
     try { return new TextDecoder('utf-8').decode(bytes); } catch { return ''; }
   }
-
 }
 function readFileAsDataURL(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); }
 
@@ -97,7 +113,7 @@ function parseCSV(csv){ const rows=[]; let i=0,cur='',row=[],q=false,s=String(cs
 // ✅ 4) 顏色工具合併：單一 colorScale + 相容包裝
 // ==========================================================
 function hexToRGBA(hex,a){ const h=(hex||'').replace('#',''); const r=parseInt(h.slice(0,2),16)||0; const g=parseInt(h.slice(2,4),16)||0; const b=parseInt(h.slice(4,6),16)||0; const aa=Math.max(0,Math.min(1,a)); return `rgba(${r}, ${g}, ${b}, ${aa})`; }
-function colorScale({v,min,max,mode='mono',pos='#09734E',neg='#7D2C2D'}){
+function colorScale({v,min,max,mode='mono',pos='#09734E',neg='#7D2D2D'}){
   if(v==null||isNaN(v)||min==null||max==null) return 'transparent';
   if(mode==='mono'){
     if(max<=min) return 'transparent';
@@ -121,7 +137,7 @@ function csvToPlayers(text){ const rows=parseCSV(text); if(!rows.length) return 
         iRt=ix('評分'), iPr=ix('上季評分'), iDl=ix('本季增減'), iRe=ix('真實薪水'), iEs=ix('評估薪水'), iDf=ix('差額');
   const out=[]; for(let r=1;r<rows.length;r++){ const row=rows[r]; if(!row||row.every(x=>!x||!String(x).trim())) continue; const real=iRe>=0?parseMoney(row[iRe]):0; const est=iEs>=0?parseMoney(row[iEs]):0; out.push({ id:newId(), Rank:iR>=0?Number(row[iR])||0:undefined, PLAYER:iP>=0?row[iP]:'', TEAM:iT>=0?String(row[iT]||'').toUpperCase():'', POS:iPos>=0?row[iPos]:'', POS2:iPos2>=0?row[iPos2]:'', 評分:iRt>=0?Number(row[iRt])||0:0, 上季評分:iPr>=0?Number(row[iPr])||0:undefined, 本季增減:iDl>=0?Number(row[iDl])||0:undefined, 真實薪水:real, 評估薪水:est, 差額:iDf>=0?Number(parseMoney(row[iDf])):est-real, cardImage:null }); }
   return out; }
-function playersToCSV(list){ const H=["Rank","PLAYER","TEAM","POS","POS'","評分","上季評分","本季增減","真實薪水","評估薪水","差額"], esc=v=>{ const s=String(v??''); return (s.includes(',')||s.includes('\n')||s.includes('"'))?('"'+s.replace(/"/g,'""')+'"'):s; }; const lines=[H.join(',')]; for(const p of list){ const d=salaryDiff(p); lines.push([esc(p.Rank),esc(p.PLAYER),esc(p.TEAM),esc(p.POS),esc(p.POS2),p.評分??'',p.上季評分??'',p.本季增減??'',p.真實薪水,p.評估薪水,d].join(',')); } return lines.join('\n'); }
+function playersToCSV(list){ const H=["Rank","PLAYER","TEAM","POS","POS'","評分","上季評分","本季增減","真實薪水","評估薪水","差額"], esc=v=>{ const s=String(v??''); return (s.includes(',')||s.includes('\n')||s.includes('"'))?("\""+s.replace(/"/g,'""')+"\""):s; }; const lines=[H.join(',')]; for(const p of list){ const d=salaryDiff(p); lines.push([esc(p.Rank),esc(p.PLAYER),esc(p.TEAM),esc(p.POS),esc(p.POS2),p.評分??'',p.上季評分??'',p.本季增減??'',p.真實薪水,p.評估薪水,d].join(',')); } return lines.join('\n'); }
 
 // ==========================================================
 // ✅ 2) 單一 calcStats（一次算全體，供所有表用）
@@ -226,7 +242,7 @@ function DataTable({columns, rows, sortKey, sortAsc, onSort, stats, getRowKey}){
     return arr;
   },[rows,sortKey,sortAsc]);
   // 統一：數字欄位初次點擊→降序；字串欄位→升序
-const defaultAsc = (col)=> (col && col.sort==='num') ? false : true;
+  const defaultAsc = (col)=> (col && col.sort==='num') ? false : true;
   const headerCell = (col)=>{
     if(!col.sort) return <th key={col.key} className={cls.th}>{col.label}</th>;
     const active = sortKey===col.key;
@@ -267,7 +283,7 @@ const defaultAsc = (col)=> (col && col.sort==='num') ? false : true;
 function PlayerTab({app,setApp,goPlayerCard,stats}){
   const players = app?.players || [];
   const [sortKey,setSortKey] = useState('Rank');
-  const [sortAsc,setSortAsc] = useState(true);;
+  const [sortAsc,setSortAsc] = useState(true);
 
   const columns = useMemo(()=>[
     { key:'Rank', label:'Rank', sort:'num' },
@@ -513,6 +529,8 @@ export function runTests(){ try{
   const cLow=colorMono(1,0,10), cHigh=colorMono(9,0,10); assert('colorMono alpha increases', cLow!==cHigh);
   assert('colorDiverge zero transparent', colorDiverge(0,-5,5)==='transparent'); assert('colorDiverge positive rgba', colorDiverge(5,-5,5).startsWith('rgba(')); assert('colorDiverge negative rgba', colorDiverge(-5,-5,5).startsWith('rgba('));
   assert('parseMoney currency words', parseMoney('US$1,234')===1234); assert('parseMoney unicode minus', parseMoney('−500')===-500); assert('parseMoney paren negative', parseMoney('(1,000)')===-1000); assert('fmtMoney negative sign', fmtMoney(-9876)==='-$9,876');
+  // 追加測試
+  const st=calcStats(ps); assert('calcStats 產出評分範圍', !!st.mono['評分']); assert('fmtMoney zero', fmtMoney(0)==='$0');
 } catch(e){ console.error('🧪 TEST ERROR',e); } }
 
 // ==========================================================
@@ -565,7 +583,7 @@ export default function App(){
   const [playerCard,setPlayerCard]=useState(null);
   useEffect(()=>{ document.title='NBA 2025 Player Rating'; },[]);
   // Admin 工具列以 Query Flag 控制：在網址加 ?admin=1 顯示
-const isAdmin=(typeof window!=="undefined") && (new URLSearchParams(window.location.search).get('admin')==='1');
+  const isAdmin=(typeof window!=="undefined") && (new URLSearchParams(window.location.search).get('admin')==='1');
 
   // 產生 preset.json：
   // - players 取目前狀態（移除 cardImage 等 base64）
@@ -579,12 +597,12 @@ const isAdmin=(typeof window!=="undefined") && (new URLSearchParams(window.locat
     downloadText('preset.json', text);
   };
   function openPlayerCard(p){
-  if(!p) return;
-  const id = p.id;
-  const fromStore = (app.players||[]).find(x=> id ? x.id===id : (x.PLAYER===p.PLAYER && x.TEAM===p.TEAM));
-  setPlayerCard(fromStore || p);
-  setTab('Player');
-}
+    if(!p) return;
+    const id = p.id;
+    const fromStore = (app.players||[]).find(x=> id ? x.id===id : (x.PLAYER===p.PLAYER && x.TEAM===p.TEAM));
+    setPlayerCard(fromStore || p);
+    setTab('Player');
+  }
   useEffect(()=>{ const id=setTimeout(()=>saveApp(app),200); return ()=>clearTimeout(id); },[app]);
   const setTabAndMaybeReset=(id)=>{ if(id==='Team') setTeamAbbr(''); setTab(id); };
 
