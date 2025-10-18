@@ -143,47 +143,6 @@ function csvToPlayers(text){ const rows=parseCSV(text); if(!rows.length) return 
   return out; }
 function playersToCSV(list){ const H=["Rank","PLAYER","TEAM","POS","POS'","評分","上季評分","本季增減","真實薪水","評估薪水","差額"], esc=v=>{ const s=String(v??''); return (s.includes(',')||s.includes('\n')||s.includes('"'))?("\""+s.replace(/"/g,'""')+"\""):s; }; const lines=[H.join(',')]; for(const p of list){ const d=salaryDiff(p); lines.push([esc(p.Rank),esc(p.PLAYER),esc(p.TEAM),esc(p.POS),esc(p.POS2),p.評分??'',p.上季評分??'',p.本季增減??'',p.真實薪水,p.評估薪水,d].join(',')); } return lines.join('\n'); }
 
-// --- Import Append 去重策略（以 PLAYER+TEAM 或 Rank） ---
-const APPEND_DEDUP_KEY = 'PLAYER+TEAM'; // 可改為 'Rank'
-function getPlayerKey(p, strategy=APPEND_DEDUP_KEY){
-  try{
-    if(strategy==='Rank'){
-      const r = (p && p.Rank!=null) ? Number(p.Rank) : NaN;
-      if(isFinite(r)) return `R:${r}`;
-    }
-    const player = (p?.PLAYER || '').trim();
-    const team   = (p?.TEAM || '').trim().toUpperCase();
-    if(player && team) return `PT:${player}|${team}`;
-    const r = (p && p.Rank!=null) ? Number(p.Rank) : NaN;
-    if(isFinite(r)) return `R:${r}`;
-    return p?.id ? `ID:${p.id}` : null;
-  }catch{ return null; }
-}
-function mergePlayerRecord(oldP, newP){
-  const keep = { id: oldP?.id ?? newP?.id ?? newId(), cardImage: oldP?.cardImage ?? newP?.cardImage ?? null };
-  return { ...oldP, ...newP, ...keep };
-}
-function appendWithDedup(existing=[], incoming=[], strategy=APPEND_DEDUP_KEY){
-  const arr = [...existing];
-  const indexByKey = new Map();
-  for (let i=0; i<arr.length; i++){
-    const k = getPlayerKey(arr[i], strategy);
-    if (k && !indexByKey.has(k)) indexByKey.set(k, i);
-  }
-  for (const p of incoming){
-    const k = getPlayerKey(p, strategy);
-    if (k && indexByKey.has(k)){
-      const idx = indexByKey.get(k);
-      const merged = mergePlayerRecord(arr[idx], p);
-      arr[idx] = merged;
-    } else {
-      arr.push(p);
-      if (k) indexByKey.set(k, arr.length-1);
-    }
-  }
-  return arr;
-}
-
 // ==========================================================
 // ✅ 2) 單一 calcStats（一次算全體，供所有表用）
 // ==========================================================
@@ -367,9 +326,7 @@ function PlayerTab({app,setApp,goPlayerCard,stats,isAdmin}){
   [goPlayerCard]);
 
   async function onImportCSV(file, mode='replace'){
-    try{ const text=await readFileAsText(file); const list=csvToPlayers(text);
-      const nextPlayers = (mode==='append') ? appendWithDedup(players, list, APPEND_DEDUP_KEY) : list;
-      const next={...app,players:nextPlayers}; setApp(next); }
+    try{ const text=await readFileAsText(file); const list=csvToPlayers(text); const nextPlayers=(mode==='append')?[...players,...list]:list; const next={...app,players:nextPlayers}; setApp(next); }
     catch(err){ alert('CSV 匯入失敗：'+(err?.message||err)); }
   }
 
@@ -537,12 +494,23 @@ function TeamGrid({teams,onSelect}){
     </div>
   );
 }
-function PredictTab({app,setApp}){
+function PredictTab({app,setApp,isAdmin}){
   const predictLine=app?.predictLine||{}; const predictOpt=app?.predictOpt||{}; const predictPes=app?.predictPes||{}; const setPredict=(kind,abbr,val)=>{ const v=Number(val)||0; const next={...app, [kind]: { ...(app?.[kind]||{}), [abbr]: v }}; setApp(next); };
-  const predicted =(abbr)=>{ const o=Number(predictOpt[abbr]||0); const p=Number(predictPes[abbr]||0); return (o+p)/2; };
-  const diffToLine=(abbr)=> predicted(abbr) - Number(predictLine[abbr]||0);
+  const getLine = (abbr)=> Number(predictLine[abbr] ?? 0);
+  const getOptDisplay = (abbr)=> {
+    const raw = predictOpt[abbr];
+    const v = (raw === undefined || raw === null) ? NaN : Number(raw);
+    return (isFinite(v) && v !== 0) ? v : getLine(abbr) + 3.5;
+  };
+  const getPesDisplay = (abbr)=> {
+    const raw = predictPes[abbr];
+    const v = (raw === undefined || raw === null) ? NaN : Number(raw);
+    return (isFinite(v) && v !== 0) ? v : getLine(abbr) - 3.5;
+  };
+  const predicted =(abbr)=>{ const o=getOptDisplay(abbr); const p=getPesDisplay(abbr); return (o+p)/2; };
+  const diffToLine=(abbr)=> predicted(abbr) - getLine(abbr);
   function Table({label,teams}){
-    const [sortKey,setSortKey]=useState('預測勝場'); const [sortAsc,setSortAsc]=useState(false);
+    const [sortKey,setSortKey]=useState('賭盤盤口'); const [sortAsc,setSortAsc]=useState(false);
     const rows=useMemo(()=>{ const arr=[...teams]; arr.sort((a,b)=>{ let A,B; if(sortKey==='隊伍'){A=a.abbr;B=b.abbr;} else if(sortKey==='賭盤盤口'){A=Number(predictLine[a.abbr]||0); B=Number(predictLine[b.abbr]||0);} else if(sortKey==='預測勝場'){A=predicted(a.abbr); B=predicted(b.abbr);} else if(sortKey==='Over/Under'){A=diffToLine(a.abbr); B=diffToLine(b.abbr);} return cmp(A,B,sortAsc); }); return arr; },[teams,sortKey,sortAsc,predictLine,predictOpt,predictPes]);
     const H=({label,key})=>{ const active=sortKey===key; const isNum = key!== '隊伍'; return (<th className="p-2 cursor-pointer select-none" onClick={()=>{ if(active) setSortAsc(s=>!s); else { setSortKey(key); setSortAsc(!isNum ? true : false); }}}><span className="underline decoration-dotted underline-offset-4">{label}</span>{' '}{active?(sortAsc?'▲':'▼'):''}</th>); };
     return (
@@ -555,9 +523,9 @@ function PredictTab({app,setApp}){
                 <tr key={t.abbr} className="border-t border-zinc-800">
                   <td className="p-2"><div className="text-base font-semibold">{t.abbr}</div></td>
                   <td className="p-2">{t.nameZh}</td>
-                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictLine[t.abbr]||0} onChange={e=>setPredict('predictLine', t.abbr, e.target.value)} /></td>
-                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictOpt[t.abbr]||0} onChange={e=>setPredict('predictOpt', t.abbr, e.target.value)} /></td>
-                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictPes[t.abbr]||0} onChange={e=>setPredict('predictPes', t.abbr, e.target.value)} /></td>
+                  <td className="p-2 w-32">{isAdmin ? (<input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictLine[t.abbr]||0} onChange={e=>setPredict('predictLine', t.abbr, e.target.value)} />) : (<div className="w-28 px-2 py-1 rounded border border-zinc-700 bg-zinc-900/50 text-zinc-200">{Number(predictLine[t.abbr]||0).toFixed(1)}</div>)}</td>
+                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={getOptDisplay(t.abbr)} onChange={e=>setPredict('predictOpt', t.abbr, e.target.value)} /></td>
+                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={getPesDisplay(t.abbr)} onChange={e=>setPredict('predictPes', t.abbr, e.target.value)} /></td>
                   <td className="p-2">{pred.toFixed(1)}</td>
                   <td className={`p-2 font-semibold ${ouCls}`}>{ouText}</td>
                 </tr> ); })}
@@ -642,7 +610,8 @@ export default function App(){
   const exportPreset = (ext='jpg') => {
     const preset = {
       players: cleanPlayersForPreset(app.players||[]),
-      teamImages: buildTeamImagesMap(ext)
+      teamImages: buildTeamImagesMap(ext),
+      predictLine: app.predictLine || {}
     };
     const text = JSON.stringify(preset, null, 2);
     downloadText('preset.json', text);
@@ -689,7 +658,7 @@ useEffect(()=>{ const id=setTimeout(()=>saveApp(app),200); return ()=>clearTimeo
         <TeamTab app={app} setApp={setApp} openPlayerCard={openPlayerCard} teamAbbr={teamAbbr} setTeamAbbr={setTeamAbbr} isAdmin={isAdmin} stats={stats} />
       )}
       {tab==='Predict' && (
-        <PredictTab app={app} setApp={setApp} />
+        <PredictTab app={app} setApp={setApp} isAdmin={isAdmin} />
       )}
     </div>
   );
