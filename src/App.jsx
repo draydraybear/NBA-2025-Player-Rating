@@ -62,19 +62,19 @@ function getPresetURL(){
         const dir = location.pathname.replace(/[^/]*$/, '');
         href = dir.endsWith('/') ? dir : dir + '/';
       }
-    } catch {}
+    } catch (e) {}
     // 2) 若 <base> 存在且不是根目錄/相對路徑，才覆蓋
     try {
       if (typeof document !== 'undefined') {
         const baseEl = document.querySelector('base');
-        const baseHref = baseEl?.getAttribute('href') || '';
+        const baseHref = (baseEl && baseEl.getAttribute('href')) || '';
         if (baseHref && baseHref !== '/' && baseHref !== './' && !/^https?:/i.test(baseHref)) {
           href = baseHref.endsWith('/') ? baseHref : baseHref + '/';
         }
       }
-    } catch {}
+    } catch (e) {}
     return href + 'data/preset.json';
-  } catch {
+  } catch (e) {
     // 最後退回相對路徑（避免硬是用根目錄導致 404）
     return 'data/preset.json';
   }
@@ -105,8 +105,8 @@ async function readFileAsText(file){
     if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) return new TextDecoder('utf-16le').decode(bytes);
     if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) return new TextDecoder('utf-16be').decode(bytes);
     return new TextDecoder('utf-8').decode(bytes);
-  } catch {
-    try { return new TextDecoder('utf-8').decode(bytes); } catch { return ''; }
+  } catch (e) {
+    try { return new TextDecoder('utf-8').decode(bytes); } catch (e2) { return ''; }
   }
 }
 function readFileAsDataURL(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); }
@@ -563,15 +563,15 @@ function downloadText(name, text){
 // ==========================================================
 // App 主體
 // ==========================================================
-function loadApp(){ try{ const raw=localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): null; }catch{ return null; } }
+function loadApp(){ try{ const raw=localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): null; }catch(e){ return null; } }
 function saveApp(data){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){ console.warn('儲存失敗：', e?.message||e); } }
 const DEFAULT_STATE={ players:[], teamImages:Object.fromEntries(TEAMS.map(t=>[t.abbr,null])), predictWins:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictLine:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictOpt:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])), predictPes:Object.fromEntries(TEAMS.map(t=>[t.abbr,0])) };
 
 export default function App(){
   // Debug 記錄僅在 ?debug=1 時啟用
   const [dbg,setDbg] = useState([]);
-  const d = (m)=>{ if(!IS_DEBUG) return; try{ setDbg(x=>[...x, `[${new Date().toLocaleTimeString()}] ${m}`]); }catch{} };
-  async function tryLoadPresetOnce(current){ d(`tryLoadPresetOnce start FORCE_PRESET=${FORCE_PRESET}`); try{ if(typeof window==='undefined') return; if(FORCE_PRESET){ try{ localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PRESET_FLAG_KEY);}catch{} } const already=localStorage.getItem(PRESET_FLAG_KEY);
+  const d = (m)=>{ if(!IS_DEBUG) return; try{ setDbg(x=>[...x, `[${new Date().toLocaleTimeString()}] ${m}`]); }catch(e){} };
+  async function tryLoadPresetOnce(current){ d(`tryLoadPresetOnce start FORCE_PRESET=${FORCE_PRESET}`); try{ if(typeof window==='undefined') return; if(FORCE_PRESET){ try{ localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PRESET_FLAG_KEY);}catch(e){} } const already=localStorage.getItem(PRESET_FLAG_KEY);
     const empty=!current || !Array.isArray(current.players) || current.players.length===0;
     d(`flags already=${!!already} empty=${empty}`);
     // 修正：若資料為空就一定嘗試載入 preset，不再因為旗標存在而跳過
