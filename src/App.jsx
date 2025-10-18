@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 
 /* ==========================================================
  🏀 重構重整 + 修錯版
@@ -511,11 +511,23 @@ function PredictTab({app,setApp,isAdmin}){
   const diffToLine=(abbr)=> predicted(abbr) - getLine(abbr);
   function Table({label,teams}){
     const [sortKey,setSortKey]=useState('賭盤盤口'); const [sortAsc,setSortAsc]=useState(false);
+    const shotRef = useRef(null);
+    const [shotting, setShotting] = useState(false);
+    const handleShot = async ()=>{
+      try{
+        setShotting(true);
+        const html2canvas = await ensureHtml2Canvas();
+        const node = shotRef.current; if(!node) return;
+        const canvas = await html2canvas(node, { backgroundColor: '#0b0b0b', scale: 2, useCORS: true, logging: false });
+        await new Promise(res=> canvas.toBlob((blob)=>{ if(!blob){res(); return;} const pad=n=>String(n).padStart(2,'0'); const d=new Date(); const name=`predict-${label}-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.png`; const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url); res(); }));
+      }catch(e){ console.warn('快照失敗：', e?.message||e); }
+      finally{ setShotting(false); }
+    };
     const rows=useMemo(()=>{ const arr=[...teams]; arr.sort((a,b)=>{ let A,B; if(sortKey==='隊伍'){A=a.abbr;B=b.abbr;} else if(sortKey==='賭盤盤口'){A=Number(predictLine[a.abbr]||0); B=Number(predictLine[b.abbr]||0);} else if(sortKey==='預測勝場'){A=predicted(a.abbr); B=predicted(b.abbr);} else if(sortKey==='Over/Under'){A=diffToLine(a.abbr); B=diffToLine(b.abbr);} return cmp(A,B,sortAsc); }); return arr; },[teams,sortKey,sortAsc,predictLine,predictOpt,predictPes]);
     const H=({label,key})=>{ const active=sortKey===key; const isNum = key!== '隊伍'; return (<th className="p-2 cursor-pointer select-none" onClick={()=>{ if(active) setSortAsc(s=>!s); else { setSortKey(key); setSortAsc(!isNum ? true : false); }}}><span className="underline decoration-dotted underline-offset-4">{label}</span>{' '}{active?(sortAsc?'▲':'▼'):''}</th>); };
     return (
-      <Section title={`${label}`}>
-        <div className="overflow-x-auto">
+      <Section title={`${label}`} right={<BtnSm onClick={handleShot} disabled={shotting}>{shotting?'製作中…':'截圖 PNG'}</BtnSm>}>
+        <div className="overflow-x-auto" ref={shotRef}>
           <table className="min-w-full text-base">
             <thead><tr className="text-left font-semibold">{H({label:'隊伍',key:'隊伍'})}<th className="p-2">中文</th>{H({label:'賭盤盤口',key:'賭盤盤口'})}<th className="p-2">樂觀預測</th><th className="p-2">悲觀預測</th>{H({label:'預測勝場',key:'預測勝場'})}{H({label:'Over/Under',key:'Over/Under'})}</tr></thead>
             <tbody>
@@ -575,6 +587,18 @@ function downloadText(name, text){
     a.href=url; a.download=name; a.click();
     URL.revokeObjectURL(url);
   }catch(e){ console.warn('下載失敗：', e?.message||e); }
+}
+
+// --- 動態載入 html2canvas（快照用） ---
+async function ensureHtml2Canvas(){
+  if (typeof window !== 'undefined' && window.html2canvas) return window.html2canvas;
+  await new Promise((res, rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    s.async=true; s.onload=()=>res(); s.onerror=()=>rej(new Error('html2canvas 載入失敗'));
+    document.head.appendChild(s);
+  });
+  return window.html2canvas;
 }
 
 // ==========================================================
