@@ -53,26 +53,31 @@ const FORCE_PRESET = !!(QS && (QS.get('preset')==='1' || QS.get('reset')==='1'))
 
 // --- Preset URL（避免 import.meta） ---
 function getPresetURL(){
-  try{
-    if(typeof document!=="undefined"){
-      const baseEl=document.querySelector('base');
-      if(baseEl){
-        let baseHref=baseEl.getAttribute('href')||'/';
-        if(!baseHref.endsWith('/')) baseHref+='/';
-        return baseHref+"data/preset.json";
+  // 穩健推導：優先用當前 pathname 的子路徑；只有在 <base> 存在且非根目錄時才採用 <base>
+  try {
+    let href = '';
+    // 1) 先取當前頁面目錄（支援 GH Pages 子路徑）
+    try {
+      if (typeof location !== 'undefined') {
+        const dir = location.pathname.replace(/[^/]*$/, '');
+        href = dir.endsWith('/') ? dir : dir + '/';
       }
-    }
-  }catch{}
-  try{
-    if(typeof location!=="undefined"){
-      // 依目前頁面的「目錄」推導（支援 GitHub Pages 子路徑）
-      const dir=location.pathname.replace(/[^/]*$/, '');
-      const norm=dir.endsWith('/')?dir:dir+'/';
-      return norm+"data/preset.json";
-    }
-  }catch{}
-  // 最後退回相對路徑（避免誤用根目錄 "/data/..." 導致 404）
-  return 'data/preset.json';
+    } catch {}
+    // 2) 若 <base> 存在且不是根目錄/相對路徑，才覆蓋
+    try {
+      if (typeof document !== 'undefined') {
+        const baseEl = document.querySelector('base');
+        const baseHref = baseEl?.getAttribute('href') || '';
+        if (baseHref && baseHref !== '/' && baseHref !== './' && !/^https?:/i.test(baseHref)) {
+          href = baseHref.endsWith('/') ? baseHref : baseHref + '/';
+        }
+      }
+    } catch {}
+    return href + 'data/preset.json';
+  } catch {
+    // 最後退回相對路徑（避免硬是用根目錄導致 404）
+    return 'data/preset.json';
+  }
 }
 
 // --- 小工具 ---
