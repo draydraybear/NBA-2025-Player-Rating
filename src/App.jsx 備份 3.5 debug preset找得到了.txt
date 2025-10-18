@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 /* ==========================================================
  🏀 重構重整 + 修錯版
@@ -132,7 +132,7 @@ function colorScale({v,min,max,mode='mono',pos='#09734E',neg='#7D2D2D'}){
 }
 // 舊 API 相容（測試仍使用這兩個函式）
 const colorMono     = (v,min,max,hex="#09734E")=> colorScale({v,min,max,mode:'mono',pos:hex});
-const colorDiverge = (v,min,max,pos="#09734E",neg="#7D2D2D")=> colorScale({v,min,max,mode:'div',pos,neg});
+const colorDiverge  = (v,min,max,pos="#09734E",neg="#7D2C2D")=> colorScale({v,min,max,mode:'div',pos,neg});
 
 // --- 商業邏輯 ---
 const salaryDiff = (p)=> (Number(p?.評估薪水)||0) - (Number(p?.真實薪水)||0);
@@ -142,47 +142,6 @@ function csvToPlayers(text){ const rows=parseCSV(text); if(!rows.length) return 
   const out=[]; for(let r=1;r<rows.length;r++){ const row=rows[r]; if(!row||row.every(x=>!x||!String(x).trim())) continue; const real=iRe>=0?parseMoney(row[iRe]):0; const est=iEs>=0?parseMoney(row[iEs]):0; out.push({ id:newId(), Rank:iR>=0?Number(row[iR])||0:undefined, PLAYER:iP>=0?row[iP]:'', TEAM:iT>=0?String(row[iT]||'').toUpperCase():'', POS:iPos>=0?row[iPos]:'', POS2:iPos2>=0?row[iPos2]:'', 評分:iRt>=0?Number(row[iRt])||0:0, 上季評分:iPr>=0?Number(row[iPr])||0:undefined, 本季增減:iDl>=0?Number(row[iDl])||0:undefined, 真實薪水:real, 評估薪水:est, 差額:iDf>=0?Number(parseMoney(row[iDf])):est-real, cardImage:null }); }
   return out; }
 function playersToCSV(list){ const H=["Rank","PLAYER","TEAM","POS","POS'","評分","上季評分","本季增減","真實薪水","評估薪水","差額"], esc=v=>{ const s=String(v??''); return (s.includes(',')||s.includes('\n')||s.includes('"'))?("\""+s.replace(/"/g,'""')+"\""):s; }; const lines=[H.join(',')]; for(const p of list){ const d=salaryDiff(p); lines.push([esc(p.Rank),esc(p.PLAYER),esc(p.TEAM),esc(p.POS),esc(p.POS2),p.評分??'',p.上季評分??'',p.本季增減??'',p.真實薪水,p.評估薪水,d].join(',')); } return lines.join('\n'); }
-
-// --- Import Append 去重策略（以 PLAYER+TEAM 或 Rank） ---
-const APPEND_DEDUP_KEY = 'PLAYER+TEAM'; // 可改為 'Rank'
-function getPlayerKey(p, strategy=APPEND_DEDUP_KEY){
-  try{
-    if(strategy==='Rank'){
-      const r = (p && p.Rank!=null) ? Number(p.Rank) : NaN;
-      if(isFinite(r)) return `R:${r}`;
-    }
-    const player = (p?.PLAYER || '').trim();
-    const team   = (p?.TEAM || '').trim().toUpperCase();
-    if(player && team) return `PT:${player}|${team}`;
-    const r = (p && p.Rank!=null) ? Number(p.Rank) : NaN;
-    if(isFinite(r)) return `R:${r}`;
-    return p?.id ? `ID:${p.id}` : null;
-  }catch{ return null; }
-}
-function mergePlayerRecord(oldP, newP){
-  const keep = { id: oldP?.id ?? newP?.id ?? newId(), cardImage: oldP?.cardImage ?? newP?.cardImage ?? null };
-  return { ...oldP, ...newP, ...keep };
-}
-function appendWithDedup(existing=[], incoming=[], strategy=APPEND_DEDUP_KEY){
-  const arr = [...existing];
-  const indexByKey = new Map();
-  for (let i=0; i<arr.length; i++){
-    const k = getPlayerKey(arr[i], strategy);
-    if (k && !indexByKey.has(k)) indexByKey.set(k, i);
-  }
-  for (const p of incoming){
-    const k = getPlayerKey(p, strategy);
-    if (k && indexByKey.has(k)){
-      const idx = indexByKey.get(k);
-      const merged = mergePlayerRecord(arr[idx], p);
-      arr[idx] = merged;
-    } else {
-      arr.push(p);
-      if (k) indexByKey.set(k, arr.length-1);
-    }
-  }
-  return arr;
-}
 
 // ==========================================================
 // ✅ 2) 單一 calcStats（一次算全體，供所有表用）
@@ -323,65 +282,43 @@ function DataTable({columns, rows, sortKey, sortAsc, onSort, stats, getRowKey}){
 }
 
 // ==========================================================
-// 欄位工廠：Player/Team 共用 columns 生成器
-// ==========================================================
-function makePlayerColumns({ onPlayerClick, includeTeam=false, posMode='split', includeSalaries=false }={}){
-  const cols = [
-    { key:'Rank', label:'Rank', sort:'num' },
-    { key:'PLAYER', label:'PLAYER', sort:'str', render:(p)=> (
-        <span className="text-blue-400 underline-offset-2 hover:underline cursor-pointer" onClick={()=> onPlayerClick && onPlayerClick(p)}>{p.PLAYER}</span>
-      ) },
-  ];
-  if(includeTeam){ cols.push({ key:'TEAM', label:'TEAM', sort:'str' }); }
-  if(posMode==='merge'){
-    cols.push({ key:'POS', label:'POS', sort:'str', compute:(p)=> (p.POS + (p.POS2?` / ${p.POS2}`:'')) });
-  }else{
-    cols.push({ key:'POS', label:'POS', sort:'str' });
-    cols.push({ key:"POS'", src:'POS2', label:"POS'", sort:'str' });
-  }
-  cols.push(
-    { key:'評分', label:'評分', sort:'num', color:'mono' },
-    { key:'上季評分', label:'上季評分', sort:'num', color:'mono' },
-    { key:'本季增減', label:'本季增減', sort:'num', color:'div', rangeKey:'本季增減' },
-  );
-  if(includeSalaries){
-    cols.push(
-      { key:'真實薪水', label:'真實薪水', sort:'num', color:'mono', fmt:fmtMoney },
-      { key:'評估薪水', label:'評估薪水', sort:'num', color:'mono', fmt:fmtMoney },
-      { key:'差額', label:'差額', sort:'num', color:'div', rangeKey:'差額', compute:(p)=>salaryDiff(p), fmt:fmtMoney },
-    );
-  }
-  return cols;
-}
-
-// ==========================================================
 // Player Tab（使用 DataTable）
 // ==========================================================
-function PlayerTab({app,setApp,goPlayerCard,stats,isAdmin}){
+function PlayerTab({app,setApp,goPlayerCard,stats}){
   const players = app?.players || [];
   const [sortKey,setSortKey] = useState('Rank');
   const [sortAsc,setSortAsc] = useState(true);
 
-  const columns = useMemo(() =>
-    makePlayerColumns({ onPlayerClick: goPlayerCard, includeTeam: true, posMode: 'split', includeSalaries: true }),
-  [goPlayerCard]);
+  const columns = useMemo(()=>[
+    { key:'Rank', label:'Rank', sort:'num' },
+    { key:'PLAYER', label:'PLAYER', sort:'str', render:(p)=> (
+        <span className="text-blue-400 underline-offset-2 hover:underline cursor-pointer" onClick={()=>goPlayerCard && goPlayerCard(p)}>{p.PLAYER}</span>
+      ) },
+    { key:'TEAM', label:'TEAM', sort:'str' },
+    { key:'POS', label:'POS', sort:'str' },
+    { key:"POS'", src:'POS2', label:"POS'", sort:'str' },
+    { key:'評分', label:'評分', sort:'num', color:'mono' },
+    { key:'上季評分', label:'上季評分', sort:'num', color:'mono' },
+    { key:'本季增減', label:'本季增減', sort:'num', color:'div', rangeKey:'本季增減' },
+    { key:'真實薪水', label:'真實薪水', sort:'num', color:'mono', fmt:fmtMoney },
+    { key:'評估薪水', label:'評估薪水', sort:'num', color:'mono', fmt:fmtMoney },
+    { key:'差額', label:'差額', sort:'num', color:'div', rangeKey:'差額', compute:(p)=>salaryDiff(p), fmt:fmtMoney },
+  ],[goPlayerCard]);
 
   async function onImportCSV(file, mode='replace'){
-    try{ const text=await readFileAsText(file); const list=csvToPlayers(text);
-      const nextPlayers = (mode==='append') ? appendWithDedup(players, list, APPEND_DEDUP_KEY) : list;
-      const next={...app,players:nextPlayers}; setApp(next); }
+    try{ const text=await readFileAsText(file); const list=csvToPlayers(text); const nextPlayers=(mode==='append')?[...players,...list]:list; const next={...app,players:nextPlayers}; setApp(next); saveApp(next); }
     catch(err){ alert('CSV 匯入失敗：'+(err?.message||err)); }
   }
 
   return (
     <div className="max-w-[2400px] mx-auto px-6 py-6">
-      <Section title="球員表（點欄位可排序）" right={isAdmin ? (
-          <div className="flex gap-2 flex-wrap items-center">
-            <FileLabel accept=".csv,text/csv" onChange={e=> e.target.files?.[0] && onImportCSV(e.target.files[0],'replace')}>匯入 CSV（取代）</FileLabel>
-            <FileLabel accept=".csv,text/csv" onChange={e=> e.target.files?.[0] && onImportCSV(e.target.files[0],'append')}>追加 CSV</FileLabel>
-            <DownloadBtn name="players.csv" text={playersToCSV(players)} />
-          </div>
-        ) : null}>
+      <Section title="球員表（點欄位可排序）" right={(
+        <div className="flex gap-2 flex-wrap items-center">
+          <FileLabel accept=".csv,text/csv" onChange={e=> e.target.files?.[0] && onImportCSV(e.target.files[0],'replace')}>匯入 CSV（取代）</FileLabel>
+          <FileLabel accept=".csv,text/csv" onChange={e=> e.target.files?.[0] && onImportCSV(e.target.files[0],'append')}>追加 CSV</FileLabel>
+          <DownloadBtn name="players.csv" text={playersToCSV(players)} />
+        </div>
+      )}>
         <div className="overflow-y-scroll max-h-[80vh] pr-2">
           <DataTable columns={columns} rows={players} sortKey={sortKey} sortAsc={sortAsc} onSort={(k,a)=>{setSortKey(k);setSortAsc(a);}} stats={stats} />
         </div>
@@ -417,7 +354,7 @@ function PlayerCard({app,setApp,player,back,allPlayers,selectPlayer,goTeam,isAdm
   },[allPlayers]);
   const indexInRank = useMemo(()=> orderedByRank.findIndex(x=> x?.id===player?.id), [orderedByRank, player?.id]);
   const gotoByOffset = (off)=>{ if(indexInRank<0 || !orderedByRank.length) return; const nextIdx=(indexInRank+off+orderedByRank.length)%orderedByRank.length; const p=orderedByRank[nextIdx]; if(p) selectPlayer(p); };
-  async function onUploadCard(file){ const url = await readFileAsDataURL(file); const nextPlayers = (app.players||[]).map(x=> x.id===player.id ? {...x, cardImage:url} : x); const next = {...app, players: nextPlayers}; setApp(next); const updated = nextPlayers.find(x=>x.id===player.id); if(updated) selectPlayer(updated); }
+  async function onUploadCard(file){ const url = await readFileAsDataURL(file); const nextPlayers = (app.players||[]).map(x=> x.id===player.id ? {...x, cardImage:url} : x); const next = {...app, players: nextPlayers}; setApp(next); saveApp(next); const updated = nextPlayers.find(x=>x.id===player.id); if(updated) selectPlayer(updated); }
   return (
     <div className="max-w-[1200px] mx-auto px-6 py-6 space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
@@ -448,18 +385,29 @@ function TeamDetail({abbr, app, setApp, openPlayerCard, onSwitchTeam, isAdmin, s
 
   const [sortKey,setSortKey] = useState('Rank');
   const [sortAsc,setSortAsc] = useState(true);
-  const columns = useMemo(() =>
-    makePlayerColumns({ onPlayerClick: openPlayerCard, includeTeam: false, posMode: 'merge', includeSalaries: false }),
-  [openPlayerCard]);
+  const columns = useMemo(()=>[
+    { key:'Rank', label:'Rank', sort:'num' },
+    { key:'PLAYER', label:'PLAYER', sort:'str', render:(p)=> (<span className="text-blue-400 underline-offset-2 hover:underline cursor-pointer" onClick={()=>openPlayerCard(p)}>{p.PLAYER}</span>) },
+    { key:'POS', label:'POS', sort:'str', compute:(p)=> (p.POS + (p.POS2?` / ${p.POS2}`:'')) },
+    { key:'評分', label:'評分', sort:'num', color:'mono' },
+    { key:'上季評分', label:'上季評分', sort:'num', color:'mono' },
+    { key:'本季增減', label:'本季增減', sort:'num', color:'div', rangeKey:'本季增減' },
+  ], [openPlayerCard]);
 
   // 薪資分析表：排序 / 欄位（預設 Rank 升冪 + 可點欄位排序）
   const [saSortKey,setSaSortKey] = useState('Rank');
   const [saSortAsc,setSaSortAsc] = useState(true);
-  const salaryColumns = useMemo(() =>
-    makePlayerColumns({ onPlayerClick: openPlayerCard, includeTeam: false, posMode: 'merge', includeSalaries: true }),
-  [openPlayerCard]);
+  const salaryColumns = useMemo(()=>[
+    { key:'Rank', label:'Rank', sort:'num' },
+    { key:'PLAYER', label:'PLAYER', sort:'str', render:(p)=> (<span className="text-blue-400 underline-offset-2 hover:underline cursor-pointer" onClick={()=>openPlayerCard(p)}>{p.PLAYER}</span>) },
+    { key:'POS', label:'POS', sort:'str', compute:(p)=> (p.POS + (p.POS2?` / ${p.POS2}`:'')) },
+    { key:'評分', label:'評分', sort:'num', color:'mono' },
+    { key:'真實薪水', label:'真實薪水', sort:'num', color:'mono', fmt:fmtMoney },
+    { key:'評估薪水', label:'評估薪水', sort:'num', color:'mono', fmt:fmtMoney },
+    { key:'差額', label:'差額', sort:'num', color:'div', rangeKey:'差額', compute:(p)=>salaryDiff(p), fmt:fmtMoney },
+  ],[openPlayerCard]);
 
-  async function onUploadDepth(file){ const url=await readFileAsDataURL(file); const next={...app, teamImages:{...app.teamImages,[abbr]:url}}; setApp(next); }
+  async function onUploadDepth(file){ const url=await readFileAsDataURL(file); const next={...app, teamImages:{...app.teamImages,[abbr]:url}}; setApp(next); saveApp(next); }
 
   return (
     <div className="space-y-4">
@@ -538,7 +486,10 @@ function TeamGrid({teams,onSelect}){
   );
 }
 function PredictTab({app,setApp}){
-  const predictLine=app?.predictLine||{}; const predictOpt=app?.predictOpt||{}; const predictPes=app?.predictPes||{}; const setPredict=(kind,abbr,val)=>{ const v=Number(val)||0; const next={...app, [kind]: { ...(app?.[kind]||{}), [abbr]: v }}; setApp(next); };
+  const predictLine=app?.predictLine||{}; const predictOpt=app?.predictOpt||{}; const predictPes=app?.predictPes||{};
+  const setLine=(abbr,val)=>{ const v=Number(val)||0; const next={...app,predictLine:{...predictLine,[abbr]:v}}; setApp(next); saveApp(next); };
+  const setOpt =(abbr,val)=>{ const v=Number(val)||0; const next={...app,predictOpt :{...predictOpt ,[abbr]:v}}; setApp(next); saveApp(next); };
+  const setPes =(abbr,val)=>{ const v=Number(val)||0; const next={...app,predictPes :{...predictPes ,[abbr]:v}}; setApp(next); saveApp(next); };
   const predicted =(abbr)=>{ const o=Number(predictOpt[abbr]||0); const p=Number(predictPes[abbr]||0); return (o+p)/2; };
   const diffToLine=(abbr)=> predicted(abbr) - Number(predictLine[abbr]||0);
   function Table({label,teams}){
@@ -555,9 +506,9 @@ function PredictTab({app,setApp}){
                 <tr key={t.abbr} className="border-t border-zinc-800">
                   <td className="p-2"><div className="text-base font-semibold">{t.abbr}</div></td>
                   <td className="p-2">{t.nameZh}</td>
-                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictLine[t.abbr]||0} onChange={e=>setPredict('predictLine', t.abbr, e.target.value)} /></td>
-                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictOpt[t.abbr]||0} onChange={e=>setPredict('predictOpt', t.abbr, e.target.value)} /></td>
-                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictPes[t.abbr]||0} onChange={e=>setPredict('predictPes', t.abbr, e.target.value)} /></td>
+                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictLine[t.abbr]||0} onChange={e=>setLine(t.abbr,e.target.value)} /></td>
+                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictOpt[t.abbr]||0} onChange={e=>setOpt(t.abbr,e.target.value)} /></td>
+                  <td className="p-2 w-32"><input className="w-28 px-2 py-1 rounded border bg-zinc-900 text-zinc-100 border-zinc-700" type="number" step="0.5" value={predictPes[t.abbr]||0} onChange={e=>setPes(t.abbr,e.target.value)} /></td>
                   <td className="p-2">{pred.toFixed(1)}</td>
                   <td className={`p-2 font-semibold ${ouCls}`}>{ouText}</td>
                 </tr> ); })}
@@ -626,7 +577,7 @@ export default function App(){
       if(haveLoaded && hasData){ return; } // 只有「已載入且目前有資料」才跳過
     }
     const url=getPresetURL(); const res=await fetch(url,{cache:'no-store'}); if(!res.ok){ console.warn('Preset fetch not ok:', res.status); return; }
-    const data=await res.json(); const merged={...DEFAULT_STATE, ...data}; setApp(merged); localStorage.setItem(PRESET_FLAG_KEY,'1'); console.log('Preset loaded from', url, '(forced:', FORCE_PRESET, ')'); }catch(err){ console.warn('Preset load skipped:', err); } }
+    const data=await res.json(); const merged={...DEFAULT_STATE, ...data}; saveApp(merged); setApp(merged); localStorage.setItem(PRESET_FLAG_KEY,'1'); console.log('Preset loaded from', url, '(forced:', FORCE_PRESET, ')'); }catch(err){ console.warn('Preset load skipped:', err); } }
   const [app,setApp]=useState(loadApp()||DEFAULT_STATE);
   useEffect(()=>{ tryLoadPresetOnce(app); },[]);
   const [tab,setTab]=useState('Player');
@@ -647,20 +598,15 @@ export default function App(){
     const text = JSON.stringify(preset, null, 2);
     downloadText('preset.json', text);
   };
-  const openPlayerCard = useCallback((p)=>{
-  if(!p) return;
-  const id = p.id;
-  const fromStore = (app.players||[]).find(x=> id ? x.id===id : (x.PLAYER===p.PLAYER && x.TEAM===p.TEAM));
-  setPlayerCard(fromStore || p);
-  setTab('Player');
-}, [app.players, setPlayerCard, setTab]);
-
-useEffect(()=>{ const id=setTimeout(()=>saveApp(app),200); return ()=>clearTimeout(id); },[app]);
-  const setTabAndMaybeReset = useCallback((id)=>{
-  if(id==='Team') setTeamAbbr('');
-  setTab(id);
-}, [setTeamAbbr, setTab]);
-
+  function openPlayerCard(p){
+    if(!p) return;
+    const id = p.id;
+    const fromStore = (app.players||[]).find(x=> id ? x.id===id : (x.PLAYER===p.PLAYER && x.TEAM===p.TEAM));
+    setPlayerCard(fromStore || p);
+    setTab('Player');
+  }
+  useEffect(()=>{ const id=setTimeout(()=>saveApp(app),200); return ()=>clearTimeout(id); },[app]);
+  const setTabAndMaybeReset=(id)=>{ if(id==='Team') setTeamAbbr(''); setTab(id); };
 
   // ✅ 單一 calcStats：以全體 players 為基準
   const stats = useMemo(()=> calcStats(app.players||[]), [app.players]);
@@ -672,7 +618,7 @@ useEffect(()=>{ const id=setTimeout(()=>saveApp(app),200); return ()=>clearTimeo
 
       {isAdmin && (
         <div className="w-full px-6 py-4 flex items-center gap-2">
-          <FileLabel accept="application/json" onChange={e=>e.target.files?.[0]&& (async (f)=>{ try{ const text=await readFileAsText(f); const data=JSON.parse(text); const merged={...DEFAULT_STATE,...data}; setApp(merged);} catch(err){ alert('JSON 匯入失敗：'+(err?.message||err)); } })(e.target.files[0])}>匯入 JSON</FileLabel>
+          <FileLabel accept="application/json" onChange={e=>e.target.files?.[0]&& (async (f)=>{ try{ const text=await readFileAsText(f); const data=JSON.parse(text); const merged={...DEFAULT_STATE,...data}; setApp(merged); saveApp(merged);} catch(err){ alert('JSON 匯入失敗：'+(err?.message||err)); } })(e.target.files[0])}>匯入 JSON</FileLabel>
           <DownloadBtn name="nba_all_data.json" text={JSON.stringify(app,null,2)} />
           <Btn onClick={()=>exportPreset('jpg')}>匯出 preset.json（depth/*.jpg）</Btn>
           <Btn className="ml-auto text-xs" onClick={()=>runTests()}>🧪 執行內建測試</Btn>
@@ -680,7 +626,7 @@ useEffect(()=>{ const id=setTimeout(()=>saveApp(app),200); return ()=>clearTimeo
       )}
 
       {tab==='Player' && !playerCard && (
-        <PlayerTab app={app} setApp={setApp} goPlayerCard={openPlayerCard} stats={stats} isAdmin={isAdmin} />
+        <PlayerTab app={app} setApp={setApp} goPlayerCard={openPlayerCard} stats={stats} />
       )}
       {tab==='Player' && playerCard && (
         <PlayerCard app={app} setApp={setApp} player={playerCard} back={()=>setPlayerCard(null)} allPlayers={app.players} selectPlayer={setPlayerCard} goTeam={(abbr)=>{ setTeamAbbr(abbr); setTab('Team'); }} isAdmin={isAdmin} />
